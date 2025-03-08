@@ -76,7 +76,7 @@ def calculate_estimated_rating(user_profile, restaurant_features, s=5, n=20):
 def recommend_restaurants(file_path):
     restaurants = load_restaurant_data(file_path)
     display_restaurant_list(restaurants)
-    selected_restaurants, chosen_indexes = UserInput.get_user_choices(restaurants,3)
+    selected_restaurants, chosen_indexes = UserInput.get_user_choices(restaurants,5)
     user_ratings = UserInput.get_user_ratings(selected_restaurants)
     print(chosen_indexes)
     print(user_ratings)

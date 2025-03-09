@@ -49,6 +49,7 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
+
 # --------------------------
 # System Configuration
 # --------------------------
@@ -211,8 +212,9 @@ def rate():
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
     selected_indexes = request.form.getlist("restaurant")
-    if not selected_indexes:
-        flash("No items were selected to rate. Please select at least one item.", "danger")
+    # Check that at least 4 items are selected before proceeding
+    if not selected_indexes or len(selected_indexes) < 4:
+        flash("You must select at least 4 items to rate.", "danger")
         return redirect(url_for("index", system=system))
     selected_indexes = [int(i) for i in selected_indexes]
     selected_items = [normalized_data[i] for i in selected_indexes]
@@ -272,7 +274,6 @@ def recommend():
     return render_template("recommendations.html", recommendations=top_recommendations, system=system)
 
 
-# New Route: Reset Taste Vector
 @app.route("/reset_taste")
 def reset_taste():
     if "username" not in session:

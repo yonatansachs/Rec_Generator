@@ -49,15 +49,17 @@ class User(db.Model):
 with app.app_context():
     db.create_all()
 
-
 # --------------------------
 # System Configuration
 # --------------------------
+# For restaurants, we assume the JSON has a unique field "aaaid".
+# For movies, adjust as necessary.
 SYSTEMS = {
     "restaurants": {
         "display": "Restaurants",
         "file": "Data/feat1000_v2.json",
         "mapping": {
+            "id": "aaaid",
             "name": "name",
             "description": "description",
             "image": "image",
@@ -68,6 +70,7 @@ SYSTEMS = {
         "display": "Movies",
         "file": "Data/movies.json",
         "mapping": {
+            "id": "aaaid",  # Change if movies use a different unique field name.
             "name": "aaamovieName",
             "description": "movie_url",
             "image": "image",
@@ -86,6 +89,7 @@ def normalize_data(data, mapping):
     normalized = []
     for item in data:
         normalized.append({
+            "id": str(item.get(mapping["id"])),  # store id as string
             "name": item.get(mapping["name"], "Unknown"),
             "description": item.get(mapping["description"], ""),
             "image": item.get(mapping["image"], ""),
@@ -199,8 +203,8 @@ def index():
     mapping = SYSTEMS[system]["mapping"]
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
-    sorted_data = sorted(normalized_data, key=lambda r: 0 if r["image"] else 1)
-    return render_template("index.html", restaurants=sorted_data, system=system)
+    # Preserve the original order from JSON.
+    return render_template("index.html", restaurants=normalized_data, system=system)
 
 
 @app.route("/rate", methods=["POST"])
@@ -211,14 +215,15 @@ def rate():
     mapping = SYSTEMS[system]["mapping"]
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
-    selected_indexes = request.form.getlist("restaurant")
-    # Check that at least 4 items are selected before proceeding
-    if not selected_indexes or len(selected_indexes) < 4:
+    # Get selected unique ids from checkboxes (as strings)
+    selected_ids = request.form.getlist("restaurant")
+    if not selected_ids or len(selected_ids) < 4:
         flash("You must select at least 4 items to rate.", "danger")
         return redirect(url_for("index", system=system))
-    selected_indexes = [int(i) for i in selected_indexes]
-    selected_items = [normalized_data[i] for i in selected_indexes]
-    return render_template("rate.html", restaurants=selected_items, indexes=selected_indexes, zip=zip, system=system)
+    # Filter normalized data for only those objects whose id is in selected_ids
+    selected_items = [item for item in normalized_data if item["id"] in selected_ids]
+    # Pass the selected ids as a hidden field (comma-separated) to the rate page
+    return render_template("rate.html", restaurants=selected_items, selected_ids=",".join(selected_ids), system=system)
 
 
 @app.route("/recommend", methods=["POST"])
@@ -230,23 +235,40 @@ def recommend():
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
 
-    indexes_str = request.form.get("indexes")
-    if not indexes_str or indexes_str.strip() == "":
+    ids_str = request.form.get("selected_ids")
+    if not ids_str or ids_str.strip() == "":
         flash("No items were selected to rate. Please select at least one item.", "danger")
         return redirect(url_for("index", system=system))
-    selected_indexes = [int(i) for i in indexes_str.split(",") if i]
+    selected_ids = ids_str.split(",")
+
+    # Build a lookup dictionary of items by id
+    items_by_id = {item["id"]: item for item in normalized_data}
 
     user_ratings = []
-    for idx in selected_indexes:
-        rating = float(request.form.get(f"rating_{idx}"))
+    selected_items = []
+    for sid in selected_ids:
+        rating_val = request.form.get(f"rating_{sid}")
+        if rating_val is None:
+            continue
+        try:
+            rating = float(rating_val)
+        except ValueError:
+            continue
         user_ratings.append(rating)
+        selected_items.append(items_by_id[sid])
 
+    if len(selected_items) < 4:
+        flash("You must rate at least 4 items.", "danger")
+        return redirect(url_for("index", system=system))
+
+    # Build vectors for each item in normalized_data:
+    # Use the user rating for items in selected_items; otherwise, default to 3.0.
     vectors = []
-    for i, item in enumerate(normalized_data):
+    for item in normalized_data:
         fv = item["featureVector"][:]
-        if i in selected_indexes:
-            idx_in_selected = selected_indexes.index(i)
-            user_rating = user_ratings[idx_in_selected]
+        if item["id"] in selected_ids:
+            idx = selected_ids.index(item["id"])
+            user_rating = user_ratings[idx]
             fv_plus_rating = fv + [user_rating]
         else:
             fv_plus_rating = fv + [3.0]
@@ -254,7 +276,7 @@ def recommend():
 
     n_features = len(normalized_data[0]["featureVector"])
     objective, profile_vector = create_problem_with_pulp_dict(
-        vectors=[vectors[i][:n_features] for i in selected_indexes],
+        vectors=[vectors[normalized_data.index(item)][:n_features] for item in selected_items],
         deltas=calculate_delta(user_ratings, n=n_features)
     )
 
@@ -268,7 +290,6 @@ def recommend():
         fv = item["featureVector"]
         est_rating = calculate_estimated_rating(user_profile=profile_vector, item_features=fv, s=s, n=n_features)
         rated_items.append((item["name"], item["image"], est_rating))
-
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
     return render_template("recommendations.html", recommendations=top_recommendations, system=system)

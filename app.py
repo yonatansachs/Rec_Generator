@@ -22,11 +22,10 @@ class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(128), nullable=False)
-    # taste_vector is stored as a JSON string mapping system names to vectors.
+    # taste_vector stores a JSON mapping of system names to vectors.
     taste_vector = db.Column(db.Text, nullable=True)
 
     def set_password(self, password):
-        # Using SHA256 here for demonstration; in production use bcrypt or similar.
         self.password_hash = hashlib.sha256(password.encode()).hexdigest()
 
     def check_password(self, password):
@@ -47,15 +46,12 @@ class User(db.Model):
         return None
 
 
-# Create database tables (run once)
 with app.app_context():
     db.create_all()
 
 # --------------------------
 # System Configuration
 # --------------------------
-# For restaurants, keys are: name, description, image, featureVector.
-# For movies, we map "aaamovieName" to "name" and "movie_url" to "description".
 SYSTEMS = {
     "restaurants": {
         "display": "Restaurants",
@@ -86,7 +82,6 @@ def load_data(filepath):
 
 
 def normalize_data(data, mapping):
-    """Normalize each item to have keys: name, description, image, featureVector."""
     normalized = []
     for item in data:
         normalized.append({
@@ -187,7 +182,7 @@ def logout():
     return redirect(url_for("login"))
 
 
-# Application Routes (require login)
+# Application Routes (Require login)
 @app.route("/choose_system")
 def choose_system():
     if "username" not in session:
@@ -216,6 +211,9 @@ def rate():
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
     selected_indexes = request.form.getlist("restaurant")
+    if not selected_indexes:
+        flash("No items were selected to rate. Please select at least one item.", "danger")
+        return redirect(url_for("index", system=system))
     selected_indexes = [int(i) for i in selected_indexes]
     selected_items = [normalized_data[i] for i in selected_indexes]
     return render_template("rate.html", restaurants=selected_items, indexes=selected_indexes, zip=zip, system=system)
@@ -231,6 +229,9 @@ def recommend():
     normalized_data = normalize_data(data, mapping)
 
     indexes_str = request.form.get("indexes")
+    if not indexes_str or indexes_str.strip() == "":
+        flash("No items were selected to rate. Please select at least one item.", "danger")
+        return redirect(url_for("index", system=system))
     selected_indexes = [int(i) for i in indexes_str.split(",") if i]
 
     user_ratings = []
@@ -255,7 +256,7 @@ def recommend():
         deltas=calculate_delta(user_ratings, n=n_features)
     )
 
-    # Save the computed taste vector for the current system persistently.
+    # Save the computed taste vector for the current system.
     user = User.query.filter_by(username=session["username"]).first()
     user.set_taste_vector(system, profile_vector)
     db.session.commit()
@@ -271,6 +272,27 @@ def recommend():
     return render_template("recommendations.html", recommendations=top_recommendations, system=system)
 
 
+# New Route: Reset Taste Vector
+@app.route("/reset_taste")
+def reset_taste():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    system = request.args.get("system", "restaurants")
+    user = User.query.filter_by(username=session["username"]).first()
+    if user.taste_vector:
+        vectors = json.loads(user.taste_vector)
+    else:
+        vectors = {}
+    if system in vectors:
+        del vectors[system]
+        user.taste_vector = json.dumps(vectors)
+        db.session.commit()
+        flash("Your recommendations have been reset. Please rate items again to get new recommendations.", "info")
+    else:
+        flash("No recommendations to reset.", "warning")
+    return redirect(url_for("index", system=system))
+
+
 @app.route("/dashboard")
 def dashboard():
     if "username" not in session:
@@ -282,7 +304,7 @@ def dashboard():
     user = User.query.filter_by(username=session["username"]).first()
     user_vector = user.get_taste_vector(system)
     if not user_vector:
-        flash("No saved taste vector found. Please rate some items first.", "warning")
+        flash("You haven't rated any items yet. Please rate some items first.", "warning")
         return redirect(url_for("index", system=system))
     n_features = len(normalized_data[0]["featureVector"])
     rated_items = []
@@ -293,6 +315,19 @@ def dashboard():
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
     return render_template("recommendations.html", recommendations=top_recommendations, system=system)
+
+
+@app.route("/show_recommendations")
+def show_recommendations():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    system = request.args.get("system", "restaurants")
+    user = User.query.filter_by(username=session["username"]).first()
+    user_vector = user.get_taste_vector(system)
+    if not user_vector:
+        flash("You haven't rated any items yet. Please rate some items first.", "warning")
+        return redirect(url_for("index", system=system))
+    return redirect(url_for("dashboard", system=system))
 
 
 if __name__ == "__main__":

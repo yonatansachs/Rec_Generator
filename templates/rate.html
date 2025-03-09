@@ -4,11 +4,21 @@
   <meta charset="UTF-8">
   <title>Rate Selected {{ system|capitalize }}</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding-bottom: 100px; }
+  </style>
 </head>
 <body>
   <div class="container mt-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
     <h1 class="mb-4">Rate the Selected {{ system|capitalize }}</h1>
-    <form action="/recommend?system={{ system }}" method="post">
+    <form action="/recommend?system={{ system }}" method="post" id="rateForm">
       {% for restaurant, index in zip(restaurants, indexes) %}
       <div class="card mb-3 shadow-sm">
         <div class="row g-0">
@@ -28,17 +38,77 @@
               <div class="mb-3">
                 <label for="rating_{{ index }}" class="form-label">Your Rating (1-5):</label>
                 <input type="number" class="form-control" id="rating_{{ index }}" name="rating_{{ index }}" min="1" max="5" step="0.5" required>
+                <div class="invalid-feedback"></div>
               </div>
             </div>
           </div>
         </div>
       </div>
       {% endfor %}
-      <input type="hidden" name="indexes" value="{{ indexes | join(',') }}">
-      <button type="submit" class="btn btn-success">Get Recommendations</button>
+      <input type="hidden" name="indexes" id="rateIndexesField" value="{{ indexes | join(',') }}">
+      <!-- Removed inline submit button so only the footer button is used -->
     </form>
-    <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary mt-3">Logout</a>
   </div>
+
+  <!-- Fixed Footer for Rate Page -->
+  <div class="fixed-bottom bg-light p-3 border-top">
+    <div class="container d-flex justify-content-between align-items-center">
+      <a href="/index?system={{ system }}" class="btn btn-secondary">Back to {{ system|capitalize }} Selection</a>
+      <div>
+        <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
+        <button class="btn btn-success" onclick="validateAndSubmit();">
+          Get Recommendations
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Validate each rating field and display inline error messages
+    function validateRatings() {
+      let valid = true;
+      const inputs = document.querySelectorAll('#rateForm input[type="number"]');
+      // Clear previous errors
+      inputs.forEach(input => {
+        input.classList.remove("is-invalid");
+        const feedback = input.parentElement.querySelector(".invalid-feedback");
+        if(feedback) {
+          feedback.textContent = "";
+        }
+      });
+
+      inputs.forEach(input => {
+        const val = input.value.trim();
+        if(val === "" || isNaN(val)) {
+          input.classList.add("is-invalid");
+          const feedback = input.parentElement.querySelector(".invalid-feedback");
+          if(feedback) {
+            feedback.textContent = "Please enter a valid number.";
+          }
+          valid = false;
+        } else {
+          const num = parseFloat(val);
+          if(num < 1 || num > 5) {
+            input.classList.add("is-invalid");
+            const feedback = input.parentElement.querySelector(".invalid-feedback");
+            if(feedback) {
+              feedback.textContent = "Rating must be between 1 and 5.";
+            }
+            valid = false;
+          }
+        }
+      });
+
+      return valid;
+    }
+
+    function validateAndSubmit() {
+      if(validateRatings()) {
+        document.getElementById('rateForm').submit();
+      }
+    }
+  </script>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

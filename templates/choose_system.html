@@ -7,6 +7,13 @@
 </head>
 <body>
   <div class="container mt-4">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
     <h1 class="mb-4">Choose a Recommendation System</h1>
     <div class="list-group">
       {% for key, sys in systems.items() %}

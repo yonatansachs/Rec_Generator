@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html {% if system =='movies' %} dir="rtl" {% endif %}>
+<html {% if system == 'movies' %} dir="rtl" {% endif %}>
 <head>
   <meta charset="UTF-8">
   <title>
@@ -16,46 +16,72 @@
       max-height: 150px;
       object-fit: cover;
     }
+    .star-rating { font-size: 1.5em; margin-top: 8px; }
+    .star { cursor: pointer; color: #ccc; }
+    .star.selected { color: gold; }
   </style>
 </head>
 <body>
-  <div class="container mt-4">
-    {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    <h1 class="mb-4">
-      {% if system == 'movies' %}
-        המלצות לסרטים
-      {% else %}
-        Top {{ system|capitalize }} Recommendations
-      {% endif %}
-    </h1>
-    <div class="row">
-      {% for rec in recommendations %}
-      <div class="col-md-6 mb-4">
-        <div class="card h-100 shadow-sm">
-          {% if rec[1] %}
-            <img src="{{ rec[1] }}" class="card-img-top" alt="{{ rec[0] }}">
-          {% endif %}
-          <div class="card-body">
-            <h5 class="card-title">{{ rec[0] }}</h5>
-            <p class="card-text">
-              {% if system == 'movies' %}
-                דירוג צפוי: <span class="badge bg-primary">{{ "%.2f"|format(rec[2]) }}</span>
-              {% else %}
-                Estimated Rating: <span class="badge bg-primary">{{ "%.2f"|format(rec[2]) }}</span>
+  <!-- Wrap the recommendations in a form that posts to /update_ratings -->
+  <form action="/update_ratings?system={{ system }}" method="post" id="updateForm">
+    <div class="container mt-4">
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <h1 class="mb-4">
+        {% if system == 'movies' %}
+          המלצות לסרטים
+        {% else %}
+          Top {{ system|capitalize }} Recommendations
+        {% endif %}
+      </h1>
+      <div class="row">
+        {% for rec in recommendations %}
+          <!-- Each recommendation tuple: (name, image, estimated_rating, id) -->
+          <div class="col-md-6 mb-4">
+            <div class="card h-100 shadow-sm">
+              {% if rec[1] %}
+                <img src="{{ rec[1] }}" class="card-img-top" alt="{{ rec[0] }}">
               {% endif %}
-            </p>
+              <div class="card-body">
+                <h5 class="card-title">{{ rec[0] }}</h5>
+                <p class="card-text">
+                  {% if system == 'movies' %}
+                    דירוג צפוי: <span class="badge bg-primary">{{ "%.2f"|format(rec[2]) }}</span>
+                  {% else %}
+                    Estimated Rating: <span class="badge bg-primary">{{ "%.2f"|format(rec[2]) }}</span>
+                  {% endif %}
+                </p>
+                <!-- Star rating widget starts with no selection -->
+                <div class="star-rating" data-item-id="{{ rec[3] }}">
+                  <span class="star" data-value="1">&#9733;</span>
+                  <span class="star" data-value="2">&#9733;</span>
+                  <span class="star" data-value="3">&#9733;</span>
+                  <span class="star" data-value="4">&#9733;</span>
+                  <span class="star" data-value="5">&#9733;</span>
+                  <input type="hidden" name="rating_{{ rec[3] }}" value="0">
+                </div>
+                <!-- Details button -->
+                <a href="/item_detail?system={{ system }}&id={{ rec[3] }}" class="btn btn-info mt-2">
+                  {% if system == 'movies' %}
+                    פרטים
+                  {% else %}
+                    Details
+                  {% endif %}
+                </a>
+              </div>
+            </div>
           </div>
-        </div>
+        {% endfor %}
       </div>
-      {% endfor %}
+      <!-- Hidden field for updated IDs -->
+      <input type="hidden" name="updated_ids" id="updated_ids_field" value="">
     </div>
-  </div>
+  </form>
 
   <!-- Fixed Footer -->
   <div class="fixed-bottom bg-light p-3 border-top">
@@ -75,17 +101,69 @@
             Logout
           {% endif %}
         </a>
-        <a href="{{ url_for('reset_taste', system=system) }}" class="btn btn-warning me-2">
+        <a href="{{ url_for('reset_taste') }}?system={{ system }}" class="btn btn-warning me-2">
           {% if system == 'movies' %}
             אפס את הבחירות שלי
           {% else %}
-            Reset My selections
+            Reset My Selections
           {% endif %}
         </a>
+        <button type="button" class="btn btn-success" onclick="validateAndSubmit();">
+          {% if system == 'movies' %}
+            שמור ודרג מחדש
+          {% else %}
+            Save and Re-rate
+          {% endif %}
+        </button>
       </div>
     </div>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    // STAR RATING FUNCTIONALITY: start with no stars selected.
+    document.querySelectorAll('.star-rating').forEach(function(ratingElem) {
+      const stars = ratingElem.querySelectorAll('.star');
+      const input = ratingElem.querySelector('input[type="hidden"]');
+      stars.forEach(function(s) { s.classList.remove('selected'); });
+      stars.forEach(function(star) {
+        star.addEventListener('click', function() {
+          const rating = parseInt(this.getAttribute('data-value'));
+          input.value = rating;
+          stars.forEach(function(s, index) {
+            s.classList.toggle('selected', index < rating);
+          });
+        });
+      });
+    });
+
+    // When "Save and Re-rate" is clicked, simply gather updated ratings and submit.
+    function validateAndSubmit() {
+      let updatedIds = [];
+      document.querySelectorAll('.star-rating').forEach(function(container) {
+        const itemId = container.getAttribute('data-item-id');
+        const ratingValue = parseInt(container.querySelector('input[type="hidden"]').value);
+        // Collect only items that were updated (rating > 0)
+        if (ratingValue > 0) {
+          updatedIds.push(itemId);
+        }
+      });
+      // Allow submission even if updatedIds is less than 4.
+      if (updatedIds.length === 0) {
+        alert("{% if system == 'movies' %}לא עודכנו דירוגים, אנא בחר לפחות פריט אחד לעדכון.{% else %}No ratings were updated. Please update at least one item before saving.{% endif %}");
+        return;
+      }
+      let hiddenInput = document.getElementById('updated_ids_field');
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'updated_ids';
+        hiddenInput.id = 'updated_ids_field';
+        document.getElementById('updateForm').appendChild(hiddenInput);
+      }
+      hiddenInput.value = updatedIds.join(',');
+      document.getElementById('updateForm').submit();
+    }
+  </script>
 </body>
 </html>

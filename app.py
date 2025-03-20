@@ -52,8 +52,6 @@ with app.app_context():
 # --------------------------
 # System Configuration
 # --------------------------
-# For restaurants, we assume the JSON has a unique field "aaaid".
-# For movies, adjust as necessary.
 SYSTEMS = {
     "restaurants": {
         "display": "Restaurants",
@@ -70,7 +68,7 @@ SYSTEMS = {
         "display": "Movies",
         "file": "Data/movies.json",
         "mapping": {
-            "id": "aaaid",  # Change if movies use a different unique field name.
+            "id": "aaaid",  # Adjust if movies use a different unique field.
             "name": "aaamovieName",
             "description": "movie_url",
             "image": "image",
@@ -103,10 +101,8 @@ def normalize_data(data, mapping):
 # --------------------------
 s = 5  # Global rating scale
 
-
 def calculate_delta(ratings, n):
     return [n - (n * (ri - 1) / (s - 1)) for ri in ratings]
-
 
 def create_problem_with_pulp_dict(vectors, deltas):
     n = len(vectors[0])
@@ -130,7 +126,6 @@ def create_problem_with_pulp_dict(vectors, deltas):
     profile_vector = [v.varValue for v in x]
     return value(prob.objective), profile_vector
 
-
 def calculate_estimated_rating(user_profile, item_features, s=5, n=20):
     delta = sum((u == -1 and r == 1) or (u == 1 and r == 0)
                 for u, r in zip(user_profile, item_features))
@@ -140,11 +135,9 @@ def calculate_estimated_rating(user_profile, item_features, s=5, n=20):
 # --------------------------
 # Routes
 # --------------------------
-# Root route always redirects to the login page.
 @app.route("/")
 def home():
     return redirect(url_for("login"))
-
 
 # Authentication Routes
 @app.route("/signup", methods=["GET", "POST"])
@@ -164,7 +157,6 @@ def signup():
         return redirect(url_for("choose_system"))
     return render_template("signup.html")
 
-
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -179,21 +171,17 @@ def login():
         return redirect(url_for("choose_system"))
     return render_template("login.html")
 
-
 @app.route("/logout")
 def logout():
     session.pop("username", None)
     flash("Logged out successfully.", "info")
     return redirect(url_for("login"))
 
-
-# Application Routes (Require login)
 @app.route("/choose_system")
 def choose_system():
     if "username" not in session:
         return redirect(url_for("login"))
     return render_template("choose_system.html", systems=SYSTEMS)
-
 
 @app.route("/index")
 def index():
@@ -203,9 +191,7 @@ def index():
     mapping = SYSTEMS[system]["mapping"]
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
-    # Preserve the original order from JSON.
     return render_template("index.html", restaurants=normalized_data, system=system)
-
 
 @app.route("/rate", methods=["POST"])
 def rate():
@@ -215,15 +201,76 @@ def rate():
     mapping = SYSTEMS[system]["mapping"]
     data = load_data(SYSTEMS[system]["file"])
     normalized_data = normalize_data(data, mapping)
-    # Get selected unique ids from checkboxes (as strings)
     selected_ids = request.form.getlist("restaurant")
     if not selected_ids or len(selected_ids) < 4:
         flash("You must select at least 4 items to rate.", "danger")
         return redirect(url_for("index", system=system))
-    # Filter normalized data for only those objects whose id is in selected_ids
     selected_items = [item for item in normalized_data if item["id"] in selected_ids]
-    # Pass the selected ids as a hidden field (comma-separated) to the rate page
     return render_template("rate.html", restaurants=selected_items, selected_ids=",".join(selected_ids), system=system)
+
+
+@app.route("/update_ratings", methods=["POST"])
+def update_ratings():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    system = request.args.get("system", "restaurants")
+    ratings_key = "ratings_" + system
+    # Get updated IDs (comma-separated string) from the form.
+    updated_ids_str = request.form.get("updated_ids")
+    if not updated_ids_str:
+        flash("No ratings were updated.", "warning")
+        return redirect(url_for("dashboard", system=system))
+    updated_ids = updated_ids_str.split(",")
+
+    # Retrieve current ratings from session.
+    ratings_dict = session.get(ratings_key, {})
+
+    # Update ratings for each updated item.
+    for item_id in updated_ids:
+        rating_val = request.form.get(f"rating_{item_id}")
+        if rating_val is not None:
+            try:
+                new_rating = float(rating_val)
+                ratings_dict[item_id] = new_rating
+            except ValueError:
+                continue
+    session[ratings_key] = ratings_dict
+
+    # Recalculate the taste vector using the updated ratings.
+    mapping = SYSTEMS[system]["mapping"]
+    data = load_data(SYSTEMS[system]["file"])
+    normalized_data = normalize_data(data, mapping)
+    selected_ids = list(ratings_dict.keys())
+    user_ratings = [ratings_dict[sid] for sid in selected_ids]
+
+    # Build feature vectors for rated items.
+    vectors = []
+    for item in normalized_data:
+        fv = item["featureVector"][:]
+        if item["id"] in selected_ids:
+            idx = selected_ids.index(item["id"])
+            user_rating = user_ratings[idx]
+            fv_plus_rating = fv + [user_rating]
+        else:
+            fv_plus_rating = fv + [3.0]
+        vectors.append(fv_plus_rating)
+
+    n_features = len(normalized_data[0]["featureVector"])
+    # Use only the rated items for optimization.
+    rated_vectors = [vectors[normalized_data.index(item)] for item in normalized_data if item["id"] in selected_ids]
+    deltas = calculate_delta(user_ratings, n=n_features)
+    objective, profile_vector = create_problem_with_pulp_dict(
+        vectors=rated_vectors,
+        deltas=deltas
+    )
+
+    # Save the updated taste vector.
+    user = User.query.filter_by(username=session["username"]).first()
+    user.set_taste_vector(system, profile_vector)
+    db.session.commit()
+
+    flash("Ratings updated and recommendations re-calculated.", "success")
+    return redirect(url_for("dashboard", system=system))
 
 
 @app.route("/recommend", methods=["POST"])
@@ -245,7 +292,6 @@ def recommend():
     items_by_id = {item["id"]: item for item in normalized_data}
 
     user_ratings = []
-    selected_items = []
     for sid in selected_ids:
         rating_val = request.form.get(f"rating_{sid}")
         if rating_val is None:
@@ -255,14 +301,13 @@ def recommend():
         except ValueError:
             continue
         user_ratings.append(rating)
-        selected_items.append(items_by_id[sid])
-
-    if len(selected_items) < 4:
+    if len(user_ratings) < 4:
         flash("You must rate at least 4 items.", "danger")
         return redirect(url_for("index", system=system))
+    # Store ratings in session for future updates
+    ratings_dict = {sid: rating for sid, rating in zip(selected_ids, user_ratings)}
+    session["ratings_" + system] = ratings_dict
 
-    # Build vectors for each item in normalized_data:
-    # Use the user rating for items in selected_items; otherwise, default to 3.0.
     vectors = []
     for item in normalized_data:
         fv = item["featureVector"][:]
@@ -276,11 +321,10 @@ def recommend():
 
     n_features = len(normalized_data[0]["featureVector"])
     objective, profile_vector = create_problem_with_pulp_dict(
-        vectors=[vectors[normalized_data.index(item)][:n_features] for item in selected_items],
+        vectors=[vectors[normalized_data.index(item)] for item in normalized_data if item["id"] in selected_ids],
         deltas=calculate_delta(user_ratings, n=n_features)
     )
 
-    # Save the computed taste vector for the current system.
     user = User.query.filter_by(username=session["username"]).first()
     user.set_taste_vector(system, profile_vector)
     db.session.commit()
@@ -289,11 +333,10 @@ def recommend():
     for item in normalized_data:
         fv = item["featureVector"]
         est_rating = calculate_estimated_rating(user_profile=profile_vector, item_features=fv, s=s, n=n_features)
-        rated_items.append((item["name"], item["image"], est_rating))
+        rated_items.append((item["name"], item["image"], est_rating, item["id"]))
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
     return render_template("recommendations.html", recommendations=top_recommendations, system=system)
-
 
 @app.route("/reset_taste")
 def reset_taste():
@@ -314,6 +357,74 @@ def reset_taste():
         flash("No recommendations to reset.", "warning")
     return redirect(url_for("index", system=system))
 
+@app.route("/item_detail")
+def item_detail():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    system = request.args.get("system", "restaurants")
+    item_id = request.args.get("id")
+    if not item_id:
+        flash("No item specified.", "danger")
+        return redirect(url_for("index", system=system))
+    mapping = SYSTEMS[system]["mapping"]
+    data = load_data(SYSTEMS[system]["file"])
+    normalized_data = normalize_data(data, mapping)
+    item = next((item for item in normalized_data if item["id"] == str(item_id)), None)
+    if not item:
+        flash("Item not found.", "danger")
+        return redirect(url_for("index", system=system))
+    ratings_dict = session.get("ratings_" + system, {})
+    current_rating = ratings_dict.get(item_id, 0)
+    return render_template("item_detail.html", item=item, system=system, current_rating=current_rating)
+
+@app.route("/update_item_rating")
+def update_item_rating():
+    if "username" not in session:
+        return redirect(url_for("login"))
+    system = request.args.get("system", "restaurants")
+    item_id = request.args.get("id")
+    new_rating_str = request.args.get("rating")
+    try:
+        new_rating = float(new_rating_str)
+    except (ValueError, TypeError):
+        flash("Invalid rating value.", "danger")
+        return redirect(url_for("dashboard", system=system))
+    ratings_key = "ratings_" + system
+    ratings_dict = session.get(ratings_key, {})
+    if not ratings_dict:
+        flash("No prior ratings found. Please rate at least 4 items first.", "warning")
+        return redirect(url_for("index", system=system))
+    ratings_dict[item_id] = new_rating
+    session[ratings_key] = ratings_dict
+
+    mapping = SYSTEMS[system]["mapping"]
+    data = load_data(SYSTEMS[system]["file"])
+    normalized_data = normalize_data(data, mapping)
+    selected_ids = list(ratings_dict.keys())
+    user_ratings = [ratings_dict[sid] for sid in selected_ids]
+
+    vectors = []
+    for item in normalized_data:
+        fv = item["featureVector"][:]
+        if item["id"] in selected_ids:
+            idx = selected_ids.index(item["id"])
+            user_rating = user_ratings[idx]
+            fv_plus_rating = fv + [user_rating]
+        else:
+            fv_plus_rating = fv + [3.0]
+        vectors.append(fv_plus_rating)
+
+    n_features = len(normalized_data[0]["featureVector"])
+    objective, profile_vector = create_problem_with_pulp_dict(
+        vectors=[vectors[normalized_data.index(item)] for item in normalized_data if item["id"] in selected_ids],
+        deltas=calculate_delta(user_ratings, n=n_features)
+    )
+    user = User.query.filter_by(username=session["username"]).first()
+    user.set_taste_vector(system, profile_vector)
+    db.session.commit()
+
+    flash("Rating updated and recommendations re-calculated.", "success")
+    return redirect(url_for("dashboard", system=system))
 
 @app.route("/dashboard")
 def dashboard():
@@ -333,11 +444,10 @@ def dashboard():
     for item in normalized_data:
         fv = item["featureVector"]
         est_rating = calculate_estimated_rating(user_profile=user_vector, item_features=fv, s=s, n=n_features)
-        rated_items.append((item["name"], item["image"], est_rating))
+        rated_items.append((item["name"], item["image"], est_rating, item["id"]))
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
     return render_template("recommendations.html", recommendations=top_recommendations, system=system)
-
 
 @app.route("/show_recommendations")
 def show_recommendations():

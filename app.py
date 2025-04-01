@@ -21,6 +21,7 @@ app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
 
 db = SQLAlchemy(app)
 
+
 # --------------------------
 # Database Models
 # --------------------------
@@ -51,6 +52,7 @@ class User(db.Model):
             return vectors.get(system)
         return None
 
+
 class Rating(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
@@ -59,8 +61,20 @@ class Rating(db.Model):
     rating = db.Column(db.Float, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
+
+# New model for permanently saving custom datasets.
+class CustomDataset(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    dataset_name = db.Column(db.String(120), nullable=False)
+    dataset_path = db.Column(db.String(200), nullable=False)
+    mapping = db.Column(db.Text, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 with app.app_context():
     db.create_all()
+
 
 # --------------------------
 # Pre-defined System Configuration
@@ -89,9 +103,8 @@ SYSTEMS = {
         }
     }
 }
-# For custom datasets, we use system "custom".
-# Their file path and mapping are stored in session under keys:
-#   session["custom_dataset_path"] and session["custom_mapping"]
+# For custom datasets we use system "custom". In this temporary workflow, the uploaded file path
+# and mapping are stored in session["custom_dataset_path"] and session["custom_mapping"].
 
 def load_data(filepath):
     with open(filepath, "r", encoding="utf-8") as f:
@@ -100,8 +113,7 @@ def load_data(filepath):
 def normalize_data(data, mapping):
     """
     Normalize the data based on the provided mapping.
-    This function requires that each item contains the required fields:
-      mapping["id"] and mapping["featureVector"].
+    Requires each item to contain the required fields: mapping["id"] and mapping["featureVector"].
     Raises Exception if a required field is missing.
     """
     normalized = []
@@ -201,7 +213,11 @@ def logout():
 def choose_system():
     if "username" not in session:
         return redirect(url_for("login"))
-    return render_template("choose_system.html", systems=SYSTEMS)
+    user = User.query.filter_by(username=session["username"]).first()
+    from sqlalchemy import desc
+    custom_datasets = CustomDataset.query.filter_by(user_id=user.id).order_by(desc(CustomDataset.timestamp)).all() if user else []
+    return render_template("choose_system.html", systems=SYSTEMS, custom_datasets=custom_datasets)
+
 
 @app.route("/index")
 def index():
@@ -560,12 +576,11 @@ def map_dataset():
         dataset_path = session["custom_dataset_path"]
         try:
             data = load_data(dataset_path)
-            # Check only first record for required fields.
+            # Check only the first record for required fields.
             if mapping["id"] not in data[0] or data[0].get(mapping["id"]) is None:
                 errors["id_error"] = f"Required field '{mapping['id']}' not found."
             if mapping["featureVector"] not in data[0] or data[0].get(mapping["featureVector"]) is None:
                 errors["vector_error"] = f"Required field '{mapping['featureVector']}' not found."
-
         except Exception as e:
             errors["general_error"] = "Error loading dataset: " + str(e)
             return render_template("map_dataset.html", errors=errors, mapping=mapping)
@@ -573,24 +588,59 @@ def map_dataset():
             return render_template("map_dataset.html", errors=errors, mapping=mapping)
         session["custom_mapping"] = json.dumps(mapping)
         flash("Mapping saved successfully. Dataset is valid.", "success")
-        return redirect(url_for("custom_index"))
+        return redirect(url_for("save_custom_dataset"))
     return render_template("map_dataset.html", errors=errors)
+
+@app.route("/save_custom_dataset", methods=["GET", "POST"])
+def save_custom_dataset():
+    if "username" not in session:
+        return render_template("login.html")
+    if "custom_dataset_path" not in session or "custom_mapping" not in session:
+        flash("Please upload a dataset and set its mapping first.", "danger")
+        return redirect(url_for("upload_dataset"))
+    if request.method == "POST":
+        dataset_name = request.form.get("dataset_name")
+        if not dataset_name:
+            flash("Please provide a name for your dataset.", "danger")
+            return render_template("save_custom_dataset.html")
+        user = User.query.filter_by(username=session["username"]).first()
+        new_custom = CustomDataset(user_id=user.id, dataset_name=dataset_name,
+                                   dataset_path=session["custom_dataset_path"],
+                                   mapping=session["custom_mapping"])
+        db.session.add(new_custom)
+        db.session.commit()
+        flash("Custom dataset saved successfully!", "success")
+        # Clear temporary session variables.
+        session.pop("custom_dataset_path", None)
+        session.pop("custom_mapping", None)
+        # Redirect to the custom index page for this saved dataset.
+        return redirect(url_for("custom_index", dataset_id=new_custom.id))
+    return render_template("save_custom_dataset.html")
 
 @app.route("/custom_index")
 def custom_index():
     if "username" not in session:
         return render_template("login.html")
-    if "custom_dataset_path" not in session or "custom_mapping" not in session:
-        #flash("Please upload a dataset and set its mapping first.", "danger")
-        return render_template("upload_dataset.html")
-    dataset_path = session["custom_dataset_path"]
-    mapping = json.loads(session["custom_mapping"])
+    dataset_id = request.args.get("dataset_id")
+    if dataset_id:
+        ds = CustomDataset.query.filter_by(id=dataset_id).first()
+        if ds is None:
+            flash("Custom dataset not found.", "danger")
+            return redirect(url_for("choose_system"))
+        dataset_path = ds.dataset_path
+        mapping = json.loads(ds.mapping)
+    else:
+        if "custom_dataset_path" not in session or "custom_mapping" not in session:
+            flash("Please upload a dataset and set its mapping first.", "danger")
+            return redirect(url_for("upload_dataset"))
+        dataset_path = session["custom_dataset_path"]
+        mapping = json.loads(session["custom_mapping"])
     try:
         data = load_data(dataset_path)
         normalized_data = normalize_data(data, mapping)
     except Exception as e:
-        #flash("Error loading dataset: " + str(e), "danger")
-        return render_template("upload_dataset.html")
+        flash("Error loading dataset: " + str(e), "danger")
+        return redirect(url_for("upload_dataset"))
     return render_template("custom_index.html", items=normalized_data, system="custom")
 
 @app.route("/custom_recommend", methods=["POST"])
@@ -599,7 +649,7 @@ def custom_recommend():
         return render_template("login.html")
     if "custom_dataset_path" not in session or "custom_mapping" not in session:
         flash("Please upload a dataset and set its mapping first.", "danger")
-        return render_template("upload_dataset.html")
+        return redirect(url_for("upload_dataset"))
     system = "custom"
     mapping = json.loads(session["custom_mapping"])
     dataset_path = session["custom_dataset_path"]
@@ -663,6 +713,19 @@ def custom_recommend():
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
     return render_template("custom_recommendations.html", recommendations=top_recommendations, system=system)
+
+@app.route("/delete_custom_dataset/<int:dataset_id>", methods=["GET"])
+def delete_custom_dataset(dataset_id):
+    if "username" not in session:
+        return redirect(url_for("login"))
+    custom_dataset = CustomDataset.query.get(dataset_id)
+    if custom_dataset is None:
+        flash("Custom dataset not found.", "danger")
+    else:
+        db.session.delete(custom_dataset)
+        db.session.commit()
+        flash("Custom dataset deleted successfully.", "success")
+    return redirect(url_for("choose_system"))
 
 if __name__ == "__main__":
     app.run(debug=True)

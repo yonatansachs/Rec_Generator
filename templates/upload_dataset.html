@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Upload Custom Dataset</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding-top: 20px; }
+  </style>
+</head>
+<body>
+  <div class="container mt-4">
+    <!-- Flash block -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <h1 class="mb-4">Upload New Custom Dataset</h1>
+    <form action="/upload_dataset" method="post" enctype="multipart/form-data">
+      <div class="mb-3">
+        <label for="dataset" class="form-label">Choose JSON File:</label>
+        <input type="file" name="dataset" id="dataset" class="form-control" accept=".json">
+        {% if errors and errors.file_error %}
+          <small class="text-danger">{{ errors.file_error }}</small>
+        {% endif %}
+      </div>
+      <button type="submit" class="btn btn-primary">Upload Dataset</button>
+    </form>
+    <a href="{{ url_for('choose_system') }}" class="btn btn-secondary mt-3">Back to Choose System</a>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

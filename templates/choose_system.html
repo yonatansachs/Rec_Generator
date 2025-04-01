@@ -2,28 +2,35 @@
 <html>
 <head>
   <meta charset="UTF-8">
-  <title>Select a Recommendation System</title>
+  <title>Choose System</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding: 20px; }
+  </style>
 </head>
 <body>
   <div class="container mt-4">
     {% with messages = get_flashed_messages(with_categories=true) %}
-      {% if messages %}
-        {% for category, message in messages %}
-          <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
-        {% endfor %}
-      {% endif %}
-    {% endwith %}
-    <h1 class="mb-4">Choose a Recommendation System</h1>
+  {% if messages %}
+    {% for category, message in messages %}
+      <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+    {% endfor %}
+  {% endif %}
+{% endwith %}
+
+    <h1 class="mb-4">Choose a System</h1>
     <div class="list-group">
-      {% for key, sys in systems.items() %}
-      <a href="{{ url_for('index') }}?system={{ key }}" class="list-group-item list-group-item-action">
-        {{ sys.display }}
-      </a>
+      {% for key, system in systems.items() %}
+        <a href="{{ url_for('index', system=key) }}" class="list-group-item list-group-item-action">
+          {{ system.display }}
+        </a>
       {% endfor %}
     </div>
-    <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary mt-4">Logout</a>
+    <hr>
+    <!-- New Button to Upload Dataset -->
+    <a href="{{ url_for('upload_dataset') }}" class="btn btn-primary mt-3">
+      Upload New Dataset
+    </a>
   </div>
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

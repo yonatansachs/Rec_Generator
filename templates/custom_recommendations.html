@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Custom Recommendations</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding-bottom: 120px; }
+    .card-img-top { max-height: 150px; object-fit: cover; }
+    .star-rating { font-size: 1.5em; margin-top: 8px; }
+    .star { cursor: pointer; color: #ccc; }
+    .star.selected { color: gold; }
+  </style>
+</head>
+<body>
+  <form action="/update_ratings?system=custom" method="post" id="updateForm">
+    <div class="container mt-4">
+      <!-- Flash block -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+      <h1 class="mb-4">Custom Recommendations</h1>
+      <div class="row">
+        {% for rec in recommendations %}
+          <div class="col-md-6 mb-4">
+            <div class="card h-100 shadow-sm">
+              {% if rec[1] %}
+                <img src="{{ rec[1] }}" class="card-img-top" alt="{{ rec[0] }}">
+              {% endif %}
+              <div class="card-body">
+                <h5 class="card-title">{{ rec[0] }}</h5>
+                <p class="card-text">Estimated Rating: <span class="badge bg-primary">{{ "%.2f"|format(rec[2]) }}</span></p>
+                <div class="star-rating" data-item-id="{{ rec[3] }}">
+                  <span class="star" data-value="1">&#9733;</span>
+                  <span class="star" data-value="2">&#9733;</span>
+                  <span class="star" data-value="3">&#9733;</span>
+                  <span class="star" data-value="4">&#9733;</span>
+                  <span class="star" data-value="5">&#9733;</span>
+                  <input type="hidden" name="rating_{{ rec[3] }}" value="0">
+                </div>
+                <a href="/item_detail?system=custom&id={{ rec[3] }}" class="btn btn-info mt-2">Details</a>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="updated_ids" id="updated_ids_field" value="">
+    </div>
+  </form>
+  <div class="fixed-bottom bg-light p-3 border-top">
+    <div class="container d-flex justify-content-between align-items-center">
+      <a href="/custom_index" class="btn btn-secondary">Back to Custom Rating</a>
+      <div>
+        <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
+        <a href="{{ url_for('reset_taste') }}?system=custom" class="btn btn-warning me-2">Reset My Selections</a>
+        <button type="button" class="btn btn-success" onclick="validateAndSubmit();">Save and Re-rate</button>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    document.querySelectorAll('.star-rating').forEach(function(ratingElem) {
+      const stars = ratingElem.querySelectorAll('.star');
+      const input = ratingElem.querySelector('input[type="hidden"]');
+      stars.forEach(function(star) {
+        star.addEventListener('click', function() {
+          const rating = parseInt(this.getAttribute('data-value'));
+          input.value = rating;
+          stars.forEach(function(s, index) {
+            s.classList.toggle('selected', index < rating);
+          });
+        });
+      });
+    });
+    function validateAndSubmit() {
+      let updatedIds = [];
+      document.querySelectorAll('.star-rating').forEach(function(container) {
+        const itemId = container.getAttribute('data-item-id');
+        const ratingValue = parseInt(container.querySelector('input[type="hidden"]').value);
+        if (ratingValue > 0) {
+          updatedIds.push(itemId);
+        }
+      });
+      if (updatedIds.length === 0) {
+        alert("No ratings were updated. Please update at least one item before saving.");
+        return;
+      }
+      let hiddenInput = document.getElementById('updated_ids_field');
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'updated_ids';
+        hiddenInput.id = 'updated_ids_field';
+        document.getElementById('updateForm').appendChild(hiddenInput);
+      }
+      hiddenInput.value = updatedIds.join(',');
+      document.getElementById('updateForm').submit();
+    }
+  </script>
+</body>
+</html>

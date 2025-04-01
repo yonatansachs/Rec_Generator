@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Custom Dataset - Rate Items</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body { padding-bottom: 120px; }
+    .star-rating { font-size: 1.5em; margin-top: 8px; }
+    .star { cursor: pointer; color: #ccc; }
+    .star.selected { color: gold; }
+    .card-img-top { max-height: 150px; object-fit: cover; }
+  </style>
+</head>
+<body>
+  <div class="container mt-4">
+    <!-- Flash block -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, message in messages %}
+          <div class="alert alert-{{ category }} mt-2">{{ message }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+    <h1 class="mb-4">Rate Your Custom Items</h1>
+    <div class="mb-4">
+      <input type="text" id="searchInput" class="form-control" placeholder="Search by name...">
+    </div>
+    <form action="/custom_recommend?system=custom" method="post" id="ratingForm">
+      <div class="row" id="itemsContainer">
+        {% for item in items %}
+          <div class="col-md-4 mb-4 item-card">
+            <div class="card h-100">
+              {% if item.image %}
+                <img src="{{ item.image }}" class="card-img-top" alt="{{ item.name }}">
+              {% endif %}
+              <div class="card-body">
+                <h5 class="card-title">{{ item.name }}</h5>
+                {% if item.description %}
+                  <p class="card-text">{{ item.description }}</p>
+                {% else %}
+                  <p class="card-text text-muted">No description available.</p>
+                {% endif %}
+                <div class="star-rating" data-item-id="{{ item.id }}">
+                  <span class="star" data-value="1">&#9733;</span>
+                  <span class="star" data-value="2">&#9733;</span>
+                  <span class="star" data-value="3">&#9733;</span>
+                  <span class="star" data-value="4">&#9733;</span>
+                  <span class="star" data-value="5">&#9733;</span>
+                  <input type="hidden" name="rating_{{ item.id }}" value="0">
+                </div>
+              </div>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <input type="hidden" name="selected_ids" id="selected_ids_field" value="">
+    </form>
+  </div>
+  <div class="fixed-bottom bg-light p-3 border-top">
+    <div class="container d-flex justify-content-between align-items-center">
+      <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
+      <div>
+        <a href="{{ url_for('reset_taste') }}?system=custom" class="btn btn-warning me-2">Reset My Selections</a>
+        <button type="button" class="btn btn-success" onclick="handleShowRecommendations();">Get Recommendations</button>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+  <script>
+    document.querySelectorAll('.star-rating').forEach(function(ratingElem) {
+      const stars = ratingElem.querySelectorAll('.star');
+      const input = ratingElem.querySelector('input[type="hidden"]');
+      stars.forEach(function(star) {
+        star.addEventListener('click', function() {
+          const rating = parseInt(this.getAttribute('data-value'));
+          input.value = rating;
+          stars.forEach(function(s, index) {
+            s.classList.toggle('selected', index < rating);
+          });
+        });
+      });
+    });
+    const searchInput = document.getElementById('searchInput');
+    const itemCards = document.querySelectorAll('.item-card');
+    searchInput.addEventListener('keyup', function() {
+      const filter = searchInput.value.toLowerCase();
+      itemCards.forEach(function(card) {
+        const title = card.querySelector('.card-title').textContent.toLowerCase();
+        card.style.display = title.includes(filter) ? 'block' : 'none';
+      });
+    });
+    var userHasVector = false;
+    function handleShowRecommendations() {
+      let selectedIds = [];
+      document.querySelectorAll('.star-rating').forEach(function(container) {
+        const itemId = container.getAttribute('data-item-id');
+        const ratingValue = parseInt(container.querySelector('input[type="hidden"]').value);
+        if (ratingValue > 0) {
+          selectedIds.push(itemId);
+        }
+      });
+      if (userHasVector) {
+        if (selectedIds.length > 0) {
+          let hiddenInput = document.getElementById('selected_ids_field');
+          if (!hiddenInput) {
+            hiddenInput = document.createElement('input');
+            hiddenInput.type = 'hidden';
+            hiddenInput.name = 'selected_ids';
+            hiddenInput.id = 'selected_ids_field';
+            document.getElementById('ratingForm').appendChild(hiddenInput);
+          }
+          hiddenInput.value = selectedIds.join(',');
+          document.getElementById('ratingForm').submit();
+        } else {
+          window.location.href = "{{ url_for('show_recommendations') }}?system=custom";
+        }
+      } else {
+        if (selectedIds.length < 4) {
+          alert("Please rate at least 4 items before submitting.");
+          return;
+        }
+        let hiddenInput = document.getElementById('selected_ids_field');
+        if (!hiddenInput) {
+          hiddenInput = document.createElement('input');
+          hiddenInput.type = 'hidden';
+          hiddenInput.name = 'selected_ids';
+          hiddenInput.id = 'selected_ids_field';
+          document.getElementById('ratingForm').appendChild(hiddenInput);
+        }
+        hiddenInput.value = selectedIds.join(',');
+        document.getElementById('ratingForm').submit();
+      }
+    }
+  </script>
+</body>
+</html>

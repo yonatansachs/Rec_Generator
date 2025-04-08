@@ -1,20 +1,34 @@
 <!DOCTYPE html>
-<html>
+<html {% if system == 'movies' %} dir="rtl" {% endif %}>
 <head>
   <meta charset="UTF-8">
-  <title>Custom Dataset - Rate Items</title>
+  <title>
+    {% if system == 'movies' %}
+      סרטים - דרג סרטים
+    {% else %}
+      Custom Dataset Recommender - Rate Items
+    {% endif %}
+  </title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
   <style>
     body { padding-bottom: 120px; }
     .star-rating { font-size: 1.5em; margin-top: 8px; }
     .star { cursor: pointer; color: #ccc; }
     .star.selected { color: gold; }
-    .card-img-top { max-height: 150px; object-fit: cover; }
+    .card-img-top {
+      max-height: 150px;
+      object-fit: cover;
+    }
   </style>
 </head>
 <body>
   <div class="container mt-4">
-    <!-- Flash block -->
+    <!-- Back to System Selection -->
+    <a href="{{ url_for('choose_system') }}" class="btn btn-secondary mb-3">
+      &larr; Back to System Selection
+    </a>
+
+    <!-- Flash Messages -->
     {% with messages = get_flashed_messages(with_categories=true) %}
       {% if messages %}
         {% for category, message in messages %}
@@ -22,11 +36,19 @@
         {% endfor %}
       {% endif %}
     {% endwith %}
-    <h1 class="mb-4">Rate Your Custom Items</h1>
+
+    <h1 class="mb-4">Rate Custom Dataset Items</h1>
+
+    <!-- Search Bar -->
     <div class="mb-4">
       <input type="text" id="searchInput" class="form-control" placeholder="Search by name...">
     </div>
-    <form action="/custom_recommend?system=custom" method="post" id="ratingForm">
+
+    <!-- Combined selection and rating form -->
+    <!-- This form submits to the custom_recommend route -->
+    <form action="{{ url_for('custom_recommend') }}" method="post" id="customRatingForm">
+      <!-- Hidden input to pass the permanent dataset id -->
+      <input type="hidden" name="dataset_id" value="{{ dataset_id }}">
       <div class="row" id="itemsContainer">
         {% for item in items %}
           <div class="col-md-4 mb-4 item-card">
@@ -41,6 +63,7 @@
                 {% else %}
                   <p class="card-text text-muted">No description available.</p>
                 {% endif %}
+                <!-- 5-star interactive widget -->
                 <div class="star-rating" data-item-id="{{ item.id }}">
                   <span class="star" data-value="1">&#9733;</span>
                   <span class="star" data-value="2">&#9733;</span>
@@ -54,20 +77,40 @@
           </div>
         {% endfor %}
       </div>
+      <!-- Hidden field for selected item IDs -->
       <input type="hidden" name="selected_ids" id="selected_ids_field" value="">
+      <button type="button" class="btn btn-success" onclick="handleCustomGetRecs();">
+        Get Recommendations
+      </button>
     </form>
   </div>
+
+  <!-- Fixed Footer with additional My Ratings button -->
   <div class="fixed-bottom bg-light p-3 border-top">
     <div class="container d-flex justify-content-between align-items-center">
-      <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
       <div>
-        <a href="{{ url_for('reset_taste') }}?system=custom" class="btn btn-warning me-2">Reset My Selections</a>
-        <button type="button" class="btn btn-success" onclick="handleShowRecommendations();">Get Recommendations</button>
+        <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
+      </div>
+      <div>
+        <a href="{{ url_for('reset_taste', system='custom', dataset_id=dataset_id) }}" class="btn btn-warning me-2">
+        Reset My Selections
+        </a>
+
+        <!-- Added My Ratings button for custom dataset -->
+        <a href="{{ url_for('custom_my_ratings', system='custom', dataset_id=dataset_id) }}" class="btn btn-info me-2">
+  My Ratings
+</a>
+
+        <button type="button" class="btn btn-success" onclick="handleCustomGetRecs();">
+          Get Recommendations
+        </button>
       </div>
     </div>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
+    // STAR RATING FUNCTIONALITY for custom_index
     document.querySelectorAll('.star-rating').forEach(function(ratingElem) {
       const stars = ratingElem.querySelectorAll('.star');
       const input = ratingElem.querySelector('input[type="hidden"]');
@@ -81,6 +124,8 @@
         });
       });
     });
+
+    // Simple search filtering
     const searchInput = document.getElementById('searchInput');
     const itemCards = document.querySelectorAll('.item-card');
     searchInput.addEventListener('keyup', function() {
@@ -90,8 +135,9 @@
         card.style.display = title.includes(filter) ? 'block' : 'none';
       });
     });
-    var userHasVector = false;
-    function handleShowRecommendations() {
+
+    // This function collects rated items and submits the form to get recommendations
+    function handleCustomGetRecs() {
       let selectedIds = [];
       document.querySelectorAll('.star-rating').forEach(function(container) {
         const itemId = container.getAttribute('data-item-id');
@@ -100,37 +146,20 @@
           selectedIds.push(itemId);
         }
       });
-      if (userHasVector) {
-        if (selectedIds.length > 0) {
-          let hiddenInput = document.getElementById('selected_ids_field');
-          if (!hiddenInput) {
-            hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = 'selected_ids';
-            hiddenInput.id = 'selected_ids_field';
-            document.getElementById('ratingForm').appendChild(hiddenInput);
-          }
-          hiddenInput.value = selectedIds.join(',');
-          document.getElementById('ratingForm').submit();
-        } else {
-          window.location.href = "{{ url_for('show_recommendations') }}?system=custom";
-        }
-      } else {
-        if (selectedIds.length < 4) {
-          alert("Please rate at least 4 items before submitting.");
-          return;
-        }
-        let hiddenInput = document.getElementById('selected_ids_field');
-        if (!hiddenInput) {
-          hiddenInput = document.createElement('input');
-          hiddenInput.type = 'hidden';
-          hiddenInput.name = 'selected_ids';
-          hiddenInput.id = 'selected_ids_field';
-          document.getElementById('ratingForm').appendChild(hiddenInput);
-        }
-        hiddenInput.value = selectedIds.join(',');
-        document.getElementById('ratingForm').submit();
+      if (selectedIds.length < 4) {
+        alert("Please rate at least 4 items before submitting.");
+        return;
       }
+      let hiddenInput = document.getElementById('selected_ids_field');
+      if (!hiddenInput) {
+        hiddenInput = document.createElement('input');
+        hiddenInput.type = 'hidden';
+        hiddenInput.name = 'selected_ids';
+        hiddenInput.id = 'selected_ids_field';
+        document.getElementById('customRatingForm').appendChild(hiddenInput);
+      }
+      hiddenInput.value = selectedIds.join(',');
+      document.getElementById('customRatingForm').submit();
     }
   </script>
 </body>

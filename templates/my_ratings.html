@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html {% if system == 'movies' %} dir="rtl" {% endif %}>
+<html {% if system == 'movie' %} dir="rtl" {% endif %}>
 <head>
   <meta charset="UTF-8">
   <title>
-    {% if system == 'movies' %}
+    {% if system == 'movie' %}
       הדירוגים שלי
     {% else %}
       My Rated Items
@@ -35,7 +35,7 @@
 
 
     <h1 class="mb-4">
-      {% if system == 'movies' %}
+      {% if system == 'movie' %}
         דירוגי הסרטים שלי
       {% else %}
         My Rated Items
@@ -53,7 +53,7 @@
               <h5 class="card-title">{{ item.name }}</h5>
               <p class="card-text">{{ item.description }}</p>
               <p class="card-text">
-                {% if system == 'movies' %}
+                {% if system == 'movie' %}
                   דירוגך : <span id="rating-text-{{ item.id }}">{{ item.rating }}</span>/5
                 {% else %}
                   Your Rating: <span id="rating-text-{{ item.id }}">{{ item.rating }}</span>/5
@@ -70,7 +70,7 @@
               </div>
               <!-- Details button -->
               <a href="/item_detail?system={{ system }}&id={{ item.id }}" class="btn btn-info mt-2">
-                {% if system == 'movies' %}
+                {% if system == 'movie' %}
                   פרטים
                 {% else %}
                   Details
@@ -87,7 +87,7 @@
   <div class="fixed-bottom bg-light p-3 border-top">
     <div class="container d-flex justify-content-between align-items-center">
       <a href="/index?system={{ system }}" class="btn btn-secondary">
-        {% if system == 'movies' %}
+        {% if system == 'movie' %}
           חזרה
         {% else %}
           Back to Selection

@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html {% if system == 'movies' %} dir="rtl" {% endif %}>
+<html {% if system == 'movie' %} dir="rtl" {% endif %}>
 <head>
   <meta charset="UTF-8">
   <title>
-    {% if system == 'movies' %}
+    {% if system == 'movie' %}
       סרטים - דרג סרטים
     {% else %}
       {{ system|capitalize }} Recommender - Rate Items
@@ -25,7 +25,7 @@
   <div class="container mt-4">
     <!-- Back to System Selection -->
     <a href="{{ url_for('choose_system') }}" class="btn btn-secondary mb-3">
-      {% if system == 'movies' %}
+      {% if system == 'movie' %}
         &larr; חזרה לבחירת מערכת
       {% else %}
         &larr; Back to System Selection
@@ -41,7 +41,7 @@
     {% endwith %}
 
     <h1 class="mb-4">
-      {% if system == 'movies' %}
+      {% if system == 'movie' %}
         דרג סרטים
       {% else %}
         Rate {{ system|capitalize }}
@@ -51,7 +51,7 @@
     <!-- Search Bar -->
     <div class="mb-4">
       <input type="text" id="searchInput" class="form-control"
-             placeholder="{% if system == 'movies' %}חפש לפי שם...{% else %}Search by name...{% endif %}">
+             placeholder="{% if system == 'movie' %}חפש לפי שם...{% else %}Search by name...{% endif %}">
     </div>
 
     <!-- Combined selection and rating form -->
@@ -69,7 +69,7 @@
                   <p class="card-text">{{ item.description }}</p>
                 {% else %}
                   <p class="card-text text-muted">
-                    {% if system == 'movies' %}
+                    {% if system == 'movie' %}
                       אין תיאור זמין.
                     {% else %}
                       No description available.
@@ -101,7 +101,7 @@
       <!-- Left side: Logout button -->
       <div>
         <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">
-          {% if system == 'movies' %}
+          {% if system == 'movie' %}
             יציאה
           {% else %}
             Logout
@@ -111,7 +111,7 @@
       <!-- Right side: Reset, My Ratings, and Show Recommendations -->
       <div>
         <a href="{{ url_for('reset_taste') }}?system={{ system }}" class="btn btn-warning me-2">
-          {% if system == 'movies' %}
+          {% if system == 'movie' %}
             אפס את הבחירות שלי
           {% else %}
             Reset My Selections
@@ -120,7 +120,7 @@
 
         <!-- My Ratings Button -->
         <a href="/my_ratings?system={{ system }}" class="btn btn-info me-2">
-          {% if system == 'movies' %}
+          {% if system == 'movie' %}
             הדירוגים שלי
           {% else %}
             My Ratings
@@ -128,7 +128,7 @@
         </a>
 
         <button type="button" class="btn btn-success" onclick="handleShowRecommendations();">
-          {% if system == 'movies' %}
+          {% if system == 'movie' %}
             הצג המלצות
           {% else %}
             Show Recommendations
@@ -198,7 +198,7 @@
       } else {
         // If user does not have a vector, require at least 4 ratings
         if (selectedIds.length < 4) {
-          alert("{% if system == 'movies' %}יש לדרג לפחות 4 פריטים לפני השליחה.{% else %}Please rate at least 4 items before submitting.{% endif %}");
+          alert("{% if system == 'movie' %}יש לדרג לפחות 4 פריטים לפני השליחה.{% else %}Please rate at least 4 items before submitting.{% endif %}");
           return;
         }
         let hiddenInput = document.getElementById('selected_ids_field');

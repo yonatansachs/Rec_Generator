@@ -1,89 +1,58 @@
-import os, json, hashlib, pulp
+import json
+import hashlib
 from datetime import datetime
+from bson import ObjectId
+import pulp
 from flask import Flask, render_template, request, session, flash, redirect, url_for
-from flask_sqlalchemy import SQLAlchemy
+from pymongo import MongoClient
 from pulp import (
     LpProblem, LpMinimize, LpVariable, lpSum, value,
     LpBinary, LpInteger, LpContinuous, PULP_CBC_CMD
 )
-from werkzeug.utils import secure_filename
+
+# ─── at the top of app.py ───────────────────────────────────────────────────────
+from flask_session import Session   # ← add this import
+
+# …
 
 app = Flask(__name__)
-app.secret_key = "your_secret_key_here"  # Replace with a secure key
+app.secret_key = "your_secret_key_here"
 
-# Use SQLite for simplicity
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///users.db"
-app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+# ─── NEW: keep session data on disk, not in the browser cookie ────────────────
+app.config.update(
+    SESSION_TYPE="filesystem",         # where to store it
+    SESSION_FILE_DIR="./.flask_session",   # any writable dir
+    SESSION_FILE_THRESHOLD=100 * 1024 * 1024,   # 100 MB max per session
+    SESSION_PERMANENT=False,           # nuke it when the browser closes
+)
+Session(app)
+print("Session backend:", app.session_interface)
+# ───────────────────────────────────────────────────────────────────────────────
+  # initialise the server-side session
 
-# Set the uploads folder relative to app.root_path so that it works on Colab/deployment.
-UPLOAD_FOLDER = os.path.join(app.root_path, "uploads")
-if not os.path.exists(UPLOAD_FOLDER):
-    os.makedirs(UPLOAD_FOLDER)
-app.config["UPLOAD_FOLDER"] = UPLOAD_FOLDER
+# MongoDB Configuration
+MONGO_URI = "mongodb+srv://yonatansachs04:KAwr8Nc17qt4fV12@recgenerator.h80kkkm.mongodb.net/?retryWrites=true&w=majority&appName=RecGenerator"  # Adjust if using a remote MongoDB
+mongo_client = MongoClient(MONGO_URI)
+db = mongo_client["Rec_Generator"]
 
-db = SQLAlchemy(app)
+# Debug connection
+print(f"Connected to database: {db.name}")
+print(f"Collections: {db.list_collection_names()}")
 
+# Collections
+users_collection = db["users"]
+ratings_collection = db["ratings"]
 
-# --------------------------
-# Database Models
-# --------------------------
-class User(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(80), unique=True, nullable=False)
-    password_hash = db.Column(db.String(128), nullable=False)
-    # taste_vector stores a JSON mapping of system names to vectors.
-    taste_vector = db.Column(db.Text, nullable=True)
-
-    def set_password(self, password):
-        self.password_hash = hashlib.sha256(password.encode()).hexdigest()
-
-    def check_password(self, password):
-        return self.password_hash == hashlib.sha256(password.encode()).hexdigest()
-
-    def set_taste_vector(self, system, vector):
-        if self.taste_vector:
-            vectors = json.loads(self.taste_vector)
-        else:
-            vectors = {}
-        vectors[system] = vector
-        self.taste_vector = json.dumps(vectors)
-
-    def get_taste_vector(self, system):
-        if self.taste_vector:
-            vectors = json.loads(self.taste_vector)
-            return vectors.get(system)
-        return None
-
-
-class Rating(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    system = db.Column(db.String(50), nullable=False)
-    item_id = db.Column(db.String(80), nullable=False)
-    rating = db.Column(db.Float, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-
-# New model for permanently saving custom datasets.
-class CustomDataset(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
-    dataset_name = db.Column(db.String(120), nullable=False)
-    dataset_path = db.Column(db.String(200), nullable=False)
-    mapping = db.Column(db.Text, nullable=False)
-    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
-
-
-with app.app_context():
-    db.create_all()
+# Ensure indexes for efficient queries
+users_collection.create_index("username", unique=True)
+ratings_collection.create_index([("user_id", 1), ("system", 1), ("item_id", 1)], unique=True)
 
 # --------------------------
-# Pre-defined System Configuration
+# System Configuration
 # --------------------------
 SYSTEMS = {
-    "restaurants": {
+    "Restaurants": {
         "display": "Restaurants",
-        "file": "Data/feat1000_v2.json",
         "mapping": {
             "id": "aaaid",
             "name": "name",
@@ -92,38 +61,84 @@ SYSTEMS = {
             "featureVector": "featureVector"
         }
     },
-    "movies": {
+    "movie": {
         "display": "Movies",
-        "file": "Data/movies.json",
         "mapping": {
             "id": "aaaid",
             "name": "aaamovieName",
-            "description": "movie_url",
+            "description": "directors_names",
             "image": "image",
             "featureVector": "featureVector"
         }
     }
 }
 
+# Load existing collections as systems (excluding system collections)
+def load_existing_collections():
+    collections = db.list_collection_names()
+    exclude = {"users", "ratings", "system.indexes"}
+    for collection_name in collections:
+        if collection_name in exclude or collection_name in SYSTEMS:
+            continue
+        collection = db[collection_name]
+        sample_doc = collection.find_one()
+        if sample_doc:
+            mapping = {
+                "id": "id",
+                "name": "name",
+                "description": "description",
+                "image": "image",
+                "featureVector": "featureVector"
+            }
+            SYSTEMS[collection_name] = {
+                "display": collection_name.capitalize(),
+                "mapping": mapping
+            }
+            print(f"Added existing collection '{collection_name}' to SYSTEMS")
 
-# For custom datasets we use system "custom".
-# For temporary workflow, the uploaded file path and mapping are stored in:
-#   session["custom_dataset_path"] and session["custom_mapping"]
+# Run initialization
+load_existing_collections()
 
-def load_data(filepath):
-    # If filepath is not absolute, build the absolute path using app.root_path.
-    if not os.path.isabs(filepath):
-        filepath = os.path.join(app.root_path, filepath)
-    with open(filepath, "r", encoding="utf-8") as f:
-        return json.load(f)
+# --------------------------
+# User Management Functions
+# --------------------------
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
 
+def create_user(username, password):
+    user = {
+        "username": username,
+        "password_hash": hash_password(password),
+        "taste_vector": {}
+    }
+    return users_collection.insert_one(user).inserted_id
+
+def find_user_by_username(username):
+    return users_collection.find_one({"username": username})
+
+def check_password(user, password):
+    return user["password_hash"] == hash_password(password)
+
+def set_taste_vector(user_id, system, vector):
+    users_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$set": {f"taste_vector.{system}": vector}}
+    )
+
+def get_taste_vector(user_id, system):
+    user = users_collection.find_one({"_id": ObjectId(user_id)})
+    return user.get("taste_vector", {}).get(system)
+
+# --------------------------
+# Data Functions
+# --------------------------
+def load_data(system):
+    collection = db[system]
+    items = list(collection.find())
+    print(f"Loaded {len(items)} items from collection: {system}")
+    return items
 
 def normalize_data(data, mapping):
-    """
-    Normalize the data based on the provided mapping.
-    Requires each item to contain mapping["id"] and mapping["featureVector"].
-    Raises Exception if a required field is missing.
-    """
     normalized = []
     for item in data:
         if mapping["id"] not in item or item.get(mapping["id"]) is None:
@@ -139,16 +154,13 @@ def normalize_data(data, mapping):
         })
     return normalized
 
-
 # --------------------------
 # Recommendation Functions
 # --------------------------
 s = 5  # Global rating scale
 
-
 def calculate_delta(ratings, n):
     return [n - (n * (ri - 1) / (s - 1)) for ri in ratings]
-
 
 def create_problem_with_pulp_dict(vectors, deltas):
     n = len(vectors[0])
@@ -171,12 +183,10 @@ def create_problem_with_pulp_dict(vectors, deltas):
     profile_vector = [v.varValue for v in x]
     return value(prob.objective), profile_vector
 
-
 def calculate_estimated_rating(user_profile, item_features, s=5, n=20):
     delta = sum((u == -1 and r == 1) or (u == 1 and r == 0)
                 for u, r in zip(user_profile, item_features))
     return s - (delta * (s - 1) / n)
-
 
 # --------------------------
 # Routes
@@ -185,105 +195,115 @@ def calculate_estimated_rating(user_profile, item_features, s=5, n=20):
 def home():
     return redirect(url_for("login"))
 
-
 @app.route("/signup", methods=["GET", "POST"])
 def signup():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        if User.query.filter_by(username=username).first():
+        if find_user_by_username(username):
             flash("Username already exists. Please choose another.", "danger")
             return render_template("signup.html")
-        user = User(username=username)
-        user.set_password(password)
-        db.session.add(user)
-        db.session.commit()
+        user_id = create_user(username, password)
         session["username"] = username
+        session["user_id"] = str(user_id)
         flash("Sign up successful! You are now logged in.", "success")
         return redirect(url_for("choose_system"))
     return render_template("signup.html")
-
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
         username = request.form.get("username")
         password = request.form.get("password")
-        user = User.query.filter_by(username=username).first()
-        if not user or not user.check_password(password):
+        user = find_user_by_username(username)
+        if not user or not check_password(user, password):
             flash("Invalid credentials. Please try again.", "danger")
             return render_template("login.html")
         session["username"] = username
+        session["user_id"] = str(user["_id"])
         flash("Logged in successfully!", "success")
         return redirect(url_for("choose_system"))
     return render_template("login.html")
 
-
 @app.route("/logout")
 def logout():
     session.pop("username", None)
+    session.pop("user_id", None)
     flash("Logged out successfully.", "info")
     return redirect(url_for("login"))
-
 
 @app.route("/choose_system")
 def choose_system():
     if "username" not in session:
         return redirect(url_for("login"))
-    user = User.query.filter_by(username=session["username"]).first()
-    from sqlalchemy import desc
-    custom_datasets = CustomDataset.query.filter_by(user_id=user.id).order_by(
-        desc(CustomDataset.timestamp)).all() if user else []
-    return render_template("choose_system.html", systems=SYSTEMS, custom_datasets=custom_datasets)
-
+    collections = db.list_collection_names()
+    print(f"All collections: {collections}")
+    available_systems = {}
+    for system, config in SYSTEMS.items():
+        collection = db[system]
+        count = collection.count_documents({})
+        print(f"Collection {system} has {count} items")
+        if count > 0:
+            available_systems[system] = config
+    if not available_systems:
+        flash("No systems with data available. Please upload a dataset.", "warning")
+    return render_template("choose_system.html", systems=available_systems)
 
 @app.route("/index")
 def index():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
     mapping = SYSTEMS[system]["mapping"]
     try:
-        data = load_data(SYSTEMS[system]["file"])
+        data = load_data(system)
+        if not data:
+            flash(f"No items available for {SYSTEMS[system]['display']}.", "warning")
+            return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
         normalized_data = normalize_data(data, mapping)
     except Exception as e:
         flash("Error in dataset: " + str(e), "danger")
         return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
-    user = User.query.filter_by(username=session["username"]).first()
-    user_vector = user.get_taste_vector(system)
+    user_vector = get_taste_vector(session["user_id"], system)
     user_has_vector = user_vector is not None
     return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=user_has_vector)
-
 
 @app.route("/show_recommendations")
 def show_recommendations():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
-    if system == "custom":
-        flash("For your custom dataset, please use the custom rating page.", "warning")
-        return redirect(url_for("custom_index"))
-    user = User.query.filter_by(username=session["username"]).first()
-    user_vector = user.get_taste_vector(system)
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
+    user_vector = get_taste_vector(session["user_id"], system)
     if not user_vector:
         flash("You haven't rated any items yet. Please rate some items first.", "warning")
         try:
-            data = load_data(SYSTEMS[system]["file"])
-            normalized_data = normalize_data(data, SYSTEMS[system]["mapping"])
+            data = load_data(system)
+            normalized_data = normalize_data(data, SYSTEMS[system]["mapping"]) if data else []
         except Exception as e:
             normalized_data = []
         return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
     return redirect(url_for("dashboard", system=system))
-
 
 @app.route("/recommend", methods=["POST"])
 def recommend():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
     mapping = SYSTEMS[system]["mapping"]
     try:
-        data = load_data(SYSTEMS[system]["file"])
+        data = load_data(system)
+        if not data:
+            flash(f"No items available for {SYSTEMS[system]['display']}.", "warning")
+            return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
         normalized_data = normalize_data(data, mapping)
     except Exception as e:
         flash("Error in dataset: " + str(e), "danger")
@@ -293,7 +313,7 @@ def recommend():
         flash("No items were selected to rate. Please select at least one item.", "danger")
         return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
     selected_ids = ids_str.split(",")
-    user = User.query.filter_by(username=session["username"]).first()
+    user_id = session["user_id"]
     for sid in selected_ids:
         rating_val = request.form.get(f"rating_{sid}")
         if rating_val is None:
@@ -302,16 +322,13 @@ def recommend():
             rating = float(rating_val)
         except ValueError:
             continue
-        rating_record = Rating.query.filter_by(user_id=user.id, system=system, item_id=sid).first()
-        if rating_record:
-            rating_record.rating = rating
-            rating_record.timestamp = datetime.utcnow()
-        else:
-            new_rating = Rating(user_id=user.id, system=system, item_id=sid, rating=rating)
-            db.session.add(new_rating)
-    db.session.commit()
-    existing_ratings = {r.item_id: r.rating for r in Rating.query.filter_by(user_id=user.id, system=system).all()}
-    if not user.get_taste_vector(system) and len(existing_ratings) < 4:
+        ratings_collection.update_one(
+            {"user_id": ObjectId(user_id), "system": system, "item_id": sid},
+            {"$set": {"rating": rating, "timestamp": datetime.utcnow()}},
+            upsert=True
+        )
+    existing_ratings = {r["item_id"]: r["rating"] for r in ratings_collection.find({"user_id": ObjectId(user_id), "system": system})}
+    if not get_taste_vector(user_id, system) and len(existing_ratings) < 4:
         flash("You must rate at least 4 items.", "danger")
         return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
     vectors = []
@@ -333,12 +350,10 @@ def recommend():
         vectors=rated_vectors,
         deltas=calculate_delta(ratings_for_optimization, n=n_features)
     )
-    user.set_taste_vector(system, profile_vector)
-    db.session.commit()
+    set_taste_vector(user_id, system, profile_vector)
     rated_items = []
     for item in normalized_data:
-        est_rating = calculate_estimated_rating(user_profile=profile_vector, item_features=item["featureVector"], s=s,
-                                                n=n_features)
+        est_rating = calculate_estimated_rating(user_profile=profile_vector, item_features=item["featureVector"], s=s, n=n_features)
         rated_items.append((item["name"], item["image"], est_rating, item["id"]))
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
@@ -348,33 +363,16 @@ def recommend():
 def update_ratings():
     if "username" not in session:
         return redirect(url_for("login"))
-
-    # 1) Get system & dataset_id (from either query or form)
-    system     = request.args.get("system", "restaurants")
-    dataset_id = request.args.get("dataset_id") or request.form.get("dataset_id")
-
-    # 2) Load user and count how many custom ratings they already have
-    user = User.query.filter_by(username=session["username"]).first()
-    existing_count = None
-    if system == "custom":
-        existing_count = Rating.query.filter_by(
-            user_id=user.id, system="custom"
-        ).count()
-
-    # 3) Determine which items, if any, were updated
+    system = request.args.get("system", "restaurants")
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
+    user_id = session["user_id"]
     updated_ids_str = request.form.get("updated_ids", "")
     if not updated_ids_str:
-        # Only error out if they have <4 total custom ratings
-        if not (system == "custom" and existing_count is not None and existing_count >= 4):
-            flash("No ratings were updated.", "warning")
-            if system == "custom":
-                return redirect(url_for("custom_index", dataset_id=dataset_id))
-            return redirect(url_for("dashboard", system=system))
-        updated_ids = []
-    else:
-        updated_ids = updated_ids_str.split(",")
-
-    # 4) Persist any new ratings
+        flash("No ratings were updated.", "warning")
+        return redirect(url_for("dashboard", system=system))
+    updated_ids = updated_ids_str.split(",")
     for item_id in updated_ids:
         val = request.form.get(f"rating_{item_id}")
         if val is None:
@@ -383,63 +381,30 @@ def update_ratings():
             new_rating = float(val)
         except ValueError:
             continue
-        rec = Rating.query.filter_by(
-            user_id=user.id, system=system, item_id=item_id
-        ).first()
-        if rec:
-            rec.rating    = new_rating
-            rec.timestamp = datetime.utcnow()
-        else:
-            db.session.add(Rating(
-                user_id=user.id,
-                system=system,
-                item_id=item_id,
-                rating=new_rating
-            ))
-    db.session.commit()
-
-    # 5) Reload data & mapping for recommendations
-    if system == "custom":
-        if dataset_id:
-            ds = CustomDataset.query.get(dataset_id)
-            if ds is None:
-                flash("Custom dataset not found.", "danger")
-                return redirect(url_for("choose_system"))
-            dataset_path = ds.dataset_path
-            mapping      = json.loads(ds.mapping)
-        else:
-            flash("Please upload a dataset and set its mapping first.", "danger")
-            return redirect(url_for("upload_dataset"))
-        try:
-            data            = load_data(dataset_path)
-            normalized_data = normalize_data(data, mapping)
-        except Exception as e:
-            flash("Error loading dataset: " + str(e), "danger")
-            return redirect(url_for("custom_index", dataset_id=dataset_id))
-    else:
-        mapping = SYSTEMS[system]["mapping"]
-        try:
-            data            = load_data(SYSTEMS[system]["file"])
-            normalized_data = normalize_data(data, mapping)
-        except Exception as e:
-            flash("Error loading dataset: " + str(e), "danger")
+        ratings_collection.update_one(
+            {"user_id": ObjectId(user_id), "system": system, "item_id": item_id},
+            {"$set": {"rating": new_rating, "timestamp": datetime.utcnow()}},
+            upsert=True
+        )
+    mapping = SYSTEMS[system]["mapping"]
+    try:
+        data = load_data(system)
+        if not data:
+            flash(f"No items available for {SYSTEMS[system]['display']}.", "warning")
             return redirect(url_for("dashboard", system=system))
-
-    # 6) Build feature+rating vectors
-    existing_ratings = {
-        r.item_id: r.rating
-        for r in Rating.query.filter_by(user_id=user.id, system=system)
-    }
+        normalized_data = normalize_data(data, mapping)
+    except Exception as e:
+        flash("Error loading dataset: " + str(e), "danger")
+        return redirect(url_for("dashboard", system=system))
+    existing_ratings = {r["item_id"]: r["rating"] for r in ratings_collection.find({"user_id": ObjectId(user_id), "system": system})}
     vectors = []
     for item in normalized_data:
         fv = item["featureVector"][:]
         fv.append(existing_ratings.get(item["id"], 3.0))
         vectors.append(fv)
-
-    # 7) Solve for new taste vector
-    n_features     = len(normalized_data[0]["featureVector"])
-    rated_vectors  = []
-    deltas         = []
+    n_features = len(normalized_data[0]["featureVector"])
+    rated_vectors = []
+    deltas = []
     for idx, item in enumerate(normalized_data):
         if item["id"] in existing_ratings:
             rated_vectors.append(vectors[idx])
@@ -448,306 +413,154 @@ def update_ratings():
         vectors=rated_vectors,
         deltas=calculate_delta(deltas, n=n_features)
     )
-    user.set_taste_vector(system, profile_vector)
-    db.session.commit()
-
+    set_taste_vector(user_id, system, profile_vector)
     flash("Ratings updated and recommendations re-calculated.", "success")
-    # 8) Redirect back into the correct recommendations page
-    if system == "custom":
-        return redirect(url_for("dashboard", system=system, dataset_id=dataset_id))
     return redirect(url_for("dashboard", system=system))
-
-
 
 @app.route("/update_item_rating")
 def update_item_rating():
     if "username" not in session:
         return redirect(url_for("login"))
-
-    # 1) pull everything from the querystring
-    system     = request.args.get("system", "restaurants")
-    dataset_id = request.args.get("dataset_id")
-    item_id    = request.args.get("id")
+    system = request.args.get("system", "restaurants")
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
+    item_id = request.args.get("id")
     rating_str = request.args.get("rating")
-
-    # 2) validate the new rating
     try:
         new_rating = float(rating_str)
     except (ValueError, TypeError):
         flash("Invalid rating value.", "danger")
-        # bounce back into the custom dashboard if needed
-        if system == "custom" and dataset_id:
-            return redirect(url_for("dashboard", system=system, dataset_id=dataset_id))
         return redirect(url_for("dashboard", system=system))
-
-    # 3) persist the rating
-    user = User.query.filter_by(username=session["username"]).first()
-    rec  = Rating.query.filter_by(
-        user_id=user.id, system=system, item_id=item_id
-    ).first()
-    if rec:
-        rec.rating    = new_rating
-        rec.timestamp = datetime.utcnow()
-    else:
-        db.session.add(Rating(
-            user_id=user.id,
-            system=system,
-            item_id=item_id,
-            rating=new_rating
-        ))
-    db.session.commit()
-
-    # 4) load the correct data & mapping
-    if system == "custom":
-        if dataset_id:
-            ds = CustomDataset.query.get(dataset_id)
-            if not ds:
-                flash("Custom dataset not found.", "danger")
-                return redirect(url_for("choose_system"))
-            data_path = ds.dataset_path
-            mapping   = json.loads(ds.mapping)
-        else:
-            flash("Please upload a dataset and set its mapping first.", "danger")
-            return redirect(url_for("upload_dataset"))
-
-        raw = load_data(data_path)
-        items = normalize_data(raw, mapping)
-
-    else:
-        items   = normalize_data(load_data(SYSTEMS[system]["file"]),
-                                 SYSTEMS[system]["mapping"])
-
-    # 5) gather all of this user’s ratings & rebuild vectors
-    existing = {
-        r.item_id: r.rating
-        for r in Rating.query.filter_by(user_id=user.id, system=system)
-    }
-
-    # build feature+rating list for every item
+    user_id = session["user_id"]
+    ratings_collection.update_one(
+        {"user_id": ObjectId(user_id), "system": system, "item_id": item_id},
+        {"$set": {"rating": new_rating, "timestamp": datetime.utcnow()}},
+        upsert=True
+    )
+    try:
+        items = normalize_data(load_data(system), SYSTEMS[system]["mapping"])
+    except Exception as e:
+        flash("Error loading dataset: " + str(e), "danger")
+        return redirect(url_for("dashboard", system=system))
+    existing = {r["item_id"]: r["rating"] for r in ratings_collection.find({"user_id": ObjectId(user_id), "system": system})}
     vectors = []
     for it in items:
         fv = it["featureVector"][:]
         fv.append(existing.get(it["id"], 3.0))
         vectors.append(fv)
-
-    # only include the rated ones in the optimization
     nfeat = len(items[0]["featureVector"])
     rated_vecs = []
-    deltas     = []
+    deltas = []
     for idx, it in enumerate(items):
         if it["id"] in existing:
             rated_vecs.append(vectors[idx])
             deltas.append(existing[it["id"]])
-
-    # 6) solve & set taste vector
     _, profile = create_problem_with_pulp_dict(
         vectors=rated_vecs,
         deltas=calculate_delta(deltas, n=nfeat)
     )
-    user.set_taste_vector(system, profile)
-    db.session.commit()
-
+    set_taste_vector(user_id, system, profile)
     flash("Rating updated and recommendations re-calculated.", "success")
-
-    # 7) final redirect → dashboard will render custom_recommendations.html
-    if system == "custom":
-        return redirect(url_for("dashboard", system=system, dataset_id=dataset_id))
     return redirect(url_for("dashboard", system=system))
-
-
 
 @app.route("/reset_taste")
 def reset_taste():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
-    user = User.query.filter_by(username=session["username"]).first()
-
-    # Delete all ratings for the specified system.
-    Rating.query.filter_by(user_id=user.id, system=system).delete()
-
-    # Reset the taste vector for this system.
-    if user.taste_vector:
-        vectors = json.loads(user.taste_vector)
-    else:
-        vectors = {}
-    if system in vectors:
-        del vectors[system]
-    user.taste_vector = json.dumps(vectors)
-    db.session.commit()
-
-    flash("Your recommendations and ratings have been reset. Please rate items again to get new recommendations.",
-          "info")
-
-    if system == "custom":
-        dataset_id = request.args.get("dataset_id")
-        if dataset_id:
-            ds = CustomDataset.query.filter_by(id=dataset_id).first()
-            if ds:
-                # If a permanent record exists, redirect to custom index using it.
-                return redirect(url_for("custom_index", dataset_id=dataset_id))
-            else:
-                # If dataset_id is provided but not found, fall back to session-based custom dataset.
-                if "custom_dataset_path" in session and "custom_mapping" in session:
-                    return redirect(url_for("custom_index"))
-                else:
-                    flash("Custom dataset not found.", "danger")
-                    return redirect(url_for("choose_system"))
-        else:
-            # For temporary custom datasets, redirect to custom index.
-            return redirect(url_for("custom_index"))
-    else:
-        return redirect(url_for("index", system=system))
-
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
+    user_id = session["user_id"]
+    ratings_collection.delete_many({"user_id": ObjectId(user_id), "system": system})
+    users_collection.update_one(
+        {"_id": ObjectId(user_id)},
+        {"$unset": {f"taste_vector.{system}": ""}}
+    )
+    flash("Your recommendations and ratings have been reset. Please rate items again to get new recommendations.", "info")
+    return redirect(url_for("index", system=system))
 
 @app.route("/item_detail")
 def item_detail():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
     item_id = request.args.get("id")
     if not item_id:
         flash("No item specified.", "danger")
         return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
-
-    # Get mapping and data based on system type.
-    if system == "custom":
-        dataset_id = request.args.get("dataset_id")
-        if dataset_id:
-            ds = CustomDataset.query.filter_by(id=dataset_id).first()
-            if ds is None:
-                flash("Custom dataset not found.", "danger")
-                return redirect(url_for("choose_system"))
-            dataset_path = ds.dataset_path
-            mapping = json.loads(ds.mapping)
-        else:
-            if "custom_dataset_path" not in session or "custom_mapping" not in session:
-                flash("Please upload a dataset and set its mapping first.", "danger")
-                return redirect(url_for("upload_dataset"))
-            dataset_path = session["custom_dataset_path"]
-            mapping = json.loads(session["custom_mapping"])
-        try:
-            data = load_data(dataset_path)
-            normalized_data = normalize_data(data, mapping)
-        except Exception as e:
-            flash("Error in dataset: " + str(e), "danger")
-            return render_template("custom_index.html", items=[], system="custom")
-    else:
-        mapping = SYSTEMS[system]["mapping"]
-        try:
-            data = load_data(SYSTEMS[system]["file"])
-            normalized_data = normalize_data(data, mapping)
-        except Exception as e:
-            flash("Error in dataset: " + str(e), "danger")
+    mapping = SYSTEMS[system]["mapping"]
+    try:
+        data = load_data(system)
+        if not data:
+            flash(f"No items available for {SYSTEMS[system]['display']}.", "warning")
             return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
-
+        normalized_data = normalize_data(data, mapping)
+    except Exception as e:
+        flash("Error in dataset: " + str(e), "danger")
+        return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
     item = next((it for it in normalized_data if it["id"] == str(item_id)), None)
     if not item:
         flash("Item not found.", "danger")
-        if system == "custom":
-            return render_template("custom_index.html", items=normalized_data, system=system)
-        else:
-            return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
-    user = User.query.filter_by(username=session["username"]).first()
-    rating_record = Rating.query.filter_by(user_id=user.id, system=system, item_id=item_id).first()
-    current_rating = rating_record.rating if rating_record else 0
-    if system == "custom":
-        return render_template("item_detail.html", item=item, system=system, current_rating=current_rating,
-                               dataset_id=request.args.get("dataset_id"))
-    else:
-        return render_template("item_detail.html", item=item, system=system, current_rating=current_rating)
-
+        return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
+    rating_record = ratings_collection.find_one({"user_id": ObjectId(session["user_id"]), "system": system, "item_id": item_id})
+    current_rating = rating_record["rating"] if rating_record else 0
+    return render_template("item_detail.html", item=item, system=system, current_rating=current_rating)
 
 @app.route("/dashboard")
 def dashboard():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
-    mapping = SYSTEMS[system]["mapping"] if system != "custom" else None
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
+    user_id = session["user_id"]
+    mapping = SYSTEMS[system]["mapping"]
     try:
-        if system == "custom":
-            dataset_id = request.args.get("dataset_id")
-            if dataset_id:
-                ds = CustomDataset.query.filter_by(id=dataset_id).first()
-                if ds is None:
-                    flash("Custom dataset not found.", "danger")
-                    return redirect(url_for("choose_system"))
-                dataset_path = ds.dataset_path
-                mapping = json.loads(ds.mapping)
-            else:
-                if "custom_dataset_path" not in session or "custom_mapping" not in session:
-                    flash("Please upload a dataset and set its mapping first.", "danger")
-                    return redirect(url_for("upload_dataset"))
-                dataset_path = session["custom_dataset_path"]
-                mapping = json.loads(session["custom_mapping"])
-            data = load_data(dataset_path)
-            normalized_data = normalize_data(data, mapping)
-        else:
-            data = load_data(SYSTEMS[system]["file"])
-            normalized_data = normalize_data(data, SYSTEMS[system]["mapping"])
+        data = load_data(system)
+        if not data:
+            flash(f"No items available for {SYSTEMS[system]['display']}.", "warning")
+            return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
+        normalized_data = normalize_data(data, mapping)
     except Exception as e:
         flash("Error in dataset: " + str(e), "danger")
         return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
-    user = User.query.filter_by(username=session["username"]).first()
-    user_vector = user.get_taste_vector(system)
+    user_vector = get_taste_vector(user_id, system)
     if not user_vector:
         flash("You haven't rated any items yet. Please rate some items first.", "warning")
-        if system == "custom":
-            return render_template("custom_index.html", items=normalized_data, system="custom",
-                                   dataset_id=request.args.get("dataset_id"))
-        else:
-            return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
+        return render_template("index.html", restaurants=normalized_data, system=system, user_has_vector=False)
     n_features = len(normalized_data[0]["featureVector"])
     rated_items = []
     for item in normalized_data:
-        est_rating = calculate_estimated_rating(user_profile=user_vector, item_features=item["featureVector"], s=s,
-                                                n=n_features)
+        est_rating = calculate_estimated_rating(user_profile=user_vector, item_features=item["featureVector"], s=s, n=n_features)
         rated_items.append((item["name"], item["image"], est_rating, item["id"]))
     rated_items.sort(key=lambda x: x[2], reverse=True)
     top_recommendations = rated_items[:10]
-    if system == "custom":
-        return render_template("custom_recommendations.html", recommendations=top_recommendations, system=system,
-                               dataset_id=request.args.get("dataset_id"))
-    else:
-        return render_template("recommendations.html", recommendations=top_recommendations, system=system)
-
+    return render_template("recommendations.html", recommendations=top_recommendations, system=system)
 
 @app.route("/my_ratings")
 def my_ratings():
     if "username" not in session:
         return redirect(url_for("login"))
     system = request.args.get("system", "restaurants")
-    user = User.query.filter_by(username=session["username"]).first()
-    if not user:
-        flash("Please log in.", "warning")
-        return render_template("login.html")
-    rating_records = Rating.query.filter_by(user_id=user.id, system=system).all()
-    mapping = None
+    if system not in SYSTEMS:
+        flash("Invalid system selected.", "danger")
+        return redirect(url_for("choose_system"))
+    user_id = session["user_id"]
+    rating_records = list(ratings_collection.find({"user_id": ObjectId(user_id), "system": system}))
+    mapping = SYSTEMS[system]["mapping"]
     try:
-        if system == "custom":
-            dataset_id = request.args.get("dataset_id")
-            if dataset_id:
-                ds = CustomDataset.query.filter_by(id=dataset_id).first()
-                if ds is None:
-                    flash("Custom dataset not found.", "danger")
-                    return redirect(url_for("choose_system"))
-                mapping = json.loads(ds.mapping)
-                data = load_data(ds.dataset_path)
-            else:
-                if "custom_dataset_path" not in session or "custom_mapping" not in session:
-                    flash("Please upload a dataset and set its mapping first.", "danger")
-                    return redirect(url_for("upload_dataset"))
-                mapping = json.loads(session["custom_mapping"])
-                data = load_data(session["custom_dataset_path"])
-            normalized_data = normalize_data(data, mapping)
-        else:
-            mapping = SYSTEMS[system]["mapping"]
-            data = load_data(SYSTEMS[system]["file"])
-            normalized_data = normalize_data(data, mapping)
+        data = load_data(system)
+        normalized_data = normalize_data(data, mapping) if data else []
     except Exception as e:
         flash("Error in dataset: " + str(e), "danger")
         return render_template("my_ratings.html", rated_items=[], system=system)
-    item_to_rating = {r.item_id: r.rating for r in rating_records}
+    item_to_rating = {r["item_id"]: r["rating"] for r in rating_records}
     rated_items = []
     for it in normalized_data:
         if it["id"] in item_to_rating:
@@ -760,53 +573,8 @@ def my_ratings():
             })
     return render_template("my_ratings.html", rated_items=rated_items, system=system)
 
-
-@app.route("/custom_my_rating")
-def custom_my_ratings():
-    if "username" not in session:
-        return redirect(url_for("login"))
-
-    # Get dataset_id from the URL (if the dataset has been permanently saved)
-    dataset_id = request.args.get("dataset_id")
-    if dataset_id:
-        ds = CustomDataset.query.filter_by(id=dataset_id).first()
-        if ds is None:
-            flash("Custom dataset not found.", "danger")
-            return redirect(url_for("choose_system"))
-        dataset_path = ds.dataset_path
-        mapping = json.loads(ds.mapping)
-    else:
-        # For temporary (not permanently saved) custom datasets:
-        if "custom_dataset_path" not in session or "custom_mapping" not in session:
-            flash("Please upload a dataset and set its mapping first.", "danger")
-            return redirect(url_for("upload_dataset"))
-        dataset_path = session["custom_dataset_path"]
-        mapping = json.loads(session["custom_mapping"])
-    try:
-        data = load_data(dataset_path)
-        normalized_data = normalize_data(data, mapping)
-    except Exception as e:
-        flash("Error loading dataset: " + str(e), "danger")
-        normalized_data = []
-    user = User.query.filter_by(username=session["username"]).first()
-    rating_records = Rating.query.filter_by(user_id=user.id, system="custom").all()
-    # Build a mapping of item ids to ratings
-    item_to_rating = {r.item_id: r.rating for r in rating_records}
-    rated_items = []
-    for it in normalized_data:
-        if it["id"] in item_to_rating:
-            rated_items.append({
-                "id": it["id"],
-                "name": it["name"],
-                "image": it["image"],
-                "description": it["description"],
-                "rating": item_to_rating[it["id"]]
-            })
-    return render_template("custom_my_ratings.html", rated_items=rated_items, system="custom", dataset_id=dataset_id)
-
-
 # --------------------------
-# Custom Dataset Generator Routes
+# Dataset Upload Routes
 # --------------------------
 @app.route("/upload_dataset", methods=["GET", "POST"])
 def upload_dataset():
@@ -814,30 +582,97 @@ def upload_dataset():
         return render_template("login.html")
     errors = {}
     if request.method == "POST":
+        print("Received POST request for upload_dataset")
+        # Check if file part exists
         if "dataset" not in request.files:
+            print("No file part in request.files")
             errors["file_error"] = "No file part."
             return render_template("upload_dataset.html", errors=errors)
         file = request.files["dataset"]
+        print(f"File received: {file.filename}")
         if file.filename == "":
+            print("No file selected")
             errors["file_error"] = "No file selected."
             return render_template("upload_dataset.html", errors=errors)
-        filename = secure_filename(file.filename)
-        file_path = os.path.join(app.root_path, "uploads", filename)
-        file.save(file_path)
-        session["custom_dataset_path"] = os.path.join("uploads", filename)
-        flash("Dataset uploaded successfully.", "success")
-        return redirect(url_for("map_dataset"))
+        # Check if the file is a JSON file
+        if not file.filename.lower().endswith('.json'):
+            print(f"File is not a JSON file: {file.filename}")
+            errors["file_error"] = "Only JSON files are allowed."
+            return render_template("upload_dataset.html", errors=errors)
+        # Get the collection name
+        collection_name = request.form.get("collection_name")
+        print(f"Collection name provided: {collection_name}")
+        if not collection_name:
+            print("No collection name provided")
+            errors["collection_error"] = "Please provide a collection name."
+            return render_template("upload_dataset.html", errors=errors)
+        # Validate collection name (basic validation)
+        collection_name = collection_name.strip().lower()
+        print(f"Processed collection name: {collection_name}")
+        if not collection_name.isalnum():
+            print("Collection name is not alphanumeric")
+            errors["collection_error"] = "Collection name must contain only letters and numbers."
+            return render_template("upload_dataset.html", errors=errors)
+        # Check if collection already exists
+        existing_collections = db.list_collection_names()
+        print(f"Existing collections: {existing_collections}")
+        if collection_name in existing_collections:
+            print(f"Collection already exists: {collection_name}")
+            errors["collection_error"] = f"Collection '{collection_name}' already exists. Please choose a different name."
+            return render_template("upload_dataset.html", errors=errors)
+        # Check for reserved names
+        reserved_names = {"users", "ratings", "movies", "restaurants"}
+        if collection_name in reserved_names:
+            print(f"Collection name is reserved: {collection_name}")
+            errors["collection_error"] = f"Collection name '{collection_name}' is reserved. Please choose a different name."
+            return render_template("upload_dataset.html", errors=errors)
+        try:
+            # Read and parse the JSON file directly in memory
+            print("Attempting to parse JSON file")
+            data = json.load(file)
+            print(f"Parsed data: {data[:2]}...")  # Log first two items for brevity
+            if not isinstance(data, list):
+                print("Data is not a JSON array")
+                errors["file_error"] = "Dataset must be a JSON array of items."
+                return render_template("upload_dataset.html", errors=errors)
+            if not data:
+                print("Dataset is empty")
+                errors["file_error"] = "Dataset is empty."
+                return render_template("upload_dataset.html", errors=errors)
+            # Validate basic structure
+            if not all(isinstance(item, dict) for item in data):
+                print("Not all items in dataset are dictionaries")
+                errors["file_error"] = "All items in the dataset must be JSON objects."
+                return render_template("upload_dataset.html", errors=errors)
+            # Store data and collection name in session for mapping
+            print("Storing data in session")
+            session["dataset_data"] = data
+            session["collection_name"] = collection_name
+            print("Flashing success message and redirecting to map_dataset")
+            flash("Dataset uploaded successfully. Please map the fields.", "success")
+            return redirect(url_for("map_dataset"))
+        except json.JSONDecodeError as e:
+            print(f"JSON decode error: {str(e)}")
+            errors["file_error"] = f"Invalid JSON format: {str(e)}"
+            return render_template("upload_dataset.html", errors=errors)
+        except Exception as e:
+            print(f"Unexpected error during file processing: {str(e)}")
+            errors["file_error"] = f"Error processing file: {str(e)}"
+            return render_template("upload_dataset.html", errors=errors)
+    print("Rendering upload_dataset.html for GET request")
     return render_template("upload_dataset.html", errors=errors)
-
 
 @app.route("/map_dataset", methods=["GET", "POST"])
 def map_dataset():
     if "username" not in session:
         return render_template("login.html")
-    if "custom_dataset_path" not in session:
-        errors = {"general_error": "Please upload a dataset first."}
-        return render_template("upload_dataset.html", errors=errors)
+    if "dataset_data" not in session or "collection_name" not in session:
+        flash("Please upload a dataset first.", "danger")
+        return redirect(url_for("upload_dataset"))
     errors = {}
+    data = session["dataset_data"]
+    collection_name = session["collection_name"]
+    print(f"map_dataset: Collection name: {collection_name}, Data length: {len(data)}")
     if request.method == "POST":
         mapping = {
             "id": request.form.get("id_field", "id"),
@@ -846,234 +681,72 @@ def map_dataset():
             "image": request.form.get("image_field", "image"),
             "featureVector": request.form.get("vector_field", "featureVector")
         }
-        dataset_path = session["custom_dataset_path"]
-        try:
-            data = load_data(dataset_path)
-            if mapping["id"] not in data[0] or data[0].get(mapping["id"]) is None:
-                errors["id_error"] = f"Required field '{mapping['id']}' not found."
-            if mapping["featureVector"] not in data[0] or data[0].get(mapping["featureVector"]) is None:
-                errors["vector_error"] = f"Required field '{mapping['featureVector']}' not found."
-        except Exception as e:
-            errors["general_error"] = "Error loading dataset: " + str(e)
-            return render_template("map_dataset.html", errors=errors, mapping=mapping)
+        print(f"Mapping provided: {mapping}")
+        # Validate that required fields exist in at least one item
+        found_id = False
+        found_vector = False
+        for item in data:
+            if mapping["id"] in item and item.get(mapping["id"]) is not None:
+                found_id = True
+            if mapping["featureVector"] in item and item.get(mapping["featureVector"]) is not None:
+                found_vector = True
+        if not found_id:
+            print(f"Validation failed: ID field '{mapping['id']}' not found in any item")
+            errors["id_error"] = f"Required field '{mapping['id']}' not found in any item."
+        if not found_vector:
+            print(f"Validation failed: featureVector field '{mapping['featureVector']}' not found in any item")
+            errors["vector_error"] = f"Required field '{mapping['featureVector']}' not found in any item."
         if errors:
-            return render_template("map_dataset.html", errors=errors, mapping=mapping)
-        session["custom_mapping"] = json.dumps(mapping)
-        flash("Mapping saved successfully. Dataset is valid.", "success")
-        return redirect(url_for("save_custom_dataset"))
+            print("Validation errors occurred, rendering map_dataset.html with errors")
+            return render_template("map_dataset.html", errors=errors)
+        # Create the new collection
+        collection = db[collection_name]
+        # Insert the data into the collection
+        try:
+            print(f"Inserting {len(data)} items into collection '{collection_name}'")
+            collection.insert_many(data)
+            print(f"Successfully inserted {len(data)} items into collection '{collection_name}'")
+        except Exception as e:
+            print(f"Error saving dataset to collection '{collection_name}': {str(e)}")
+            flash(f"Error saving dataset to collection '{collection_name}': {str(e)}", "danger")
+            return redirect(url_for("upload_dataset"))
+        # Add to SYSTEMS
+        SYSTEMS[collection_name] = {
+            "display": collection_name.capitalize(),
+            "mapping": mapping
+        }
+        print(f"Added new collection '{collection_name}' to SYSTEMS")
+        # Clean up session only after successful save
+        session.pop("dataset_data", None)
+        session.pop("collection_name", None)
+        flash(f"Dataset successfully saved to collection '{collection_name}'.", "success")
+        return redirect(url_for("index", system=collection_name))
+    print("Rendering map_dataset.html for GET request")
     return render_template("map_dataset.html", errors=errors)
 
-
-@app.route("/save_custom_dataset", methods=["GET", "POST"])
-def save_custom_dataset():
-    if "username" not in session:
-        return render_template("login.html")
-    if "custom_dataset_path" not in session or "custom_mapping" not in session:
-        flash("Please upload a dataset and set its mapping first.", "danger")
-        return redirect(url_for("upload_dataset"))
-    if request.method == "POST":
-        dataset_name = request.form.get("dataset_name")
-        if not dataset_name:
-            flash("Please provide a name for your dataset.", "danger")
-            return render_template("save_custom_dataset.html")
-        user = User.query.filter_by(username=session["username"]).first()
-        new_custom = CustomDataset(
-            user_id=user.id,
-            dataset_name=dataset_name,
-            dataset_path=session["custom_dataset_path"],
-            mapping=session["custom_mapping"]
-        )
-        db.session.add(new_custom)
-        db.session.commit()
-        flash("Custom dataset saved successfully!", "success")
-        session.pop("custom_dataset_path", None)
-        session.pop("custom_mapping", None)
-        return redirect(url_for("custom_index", dataset_id=new_custom.id))
-    return render_template("save_custom_dataset.html")
-
-
-@app.route("/custom_index")
-def custom_index():
-    if "username" not in session:
-        return render_template("login.html")
-
-    # 1) Figure out which dataset to load (permanent vs. session)
-    dataset_id = request.args.get("dataset_id")
-    if dataset_id:
-        ds = CustomDataset.query.filter_by(id=dataset_id).first()
-        if ds is None:
-            flash("Custom dataset not found.", "danger")
-            return redirect(url_for("choose_system"))
-        dataset_path = ds.dataset_path
-        mapping = json.loads(ds.mapping)
-    else:
-        if "custom_dataset_path" not in session or "custom_mapping" not in session:
-            flash("Please upload a dataset and set its mapping first.", "danger")
-            return redirect(url_for("upload_dataset"))
-        dataset_path = session["custom_dataset_path"]
-        mapping = json.loads(session["custom_mapping"])
-
-    # 2) Load & normalize
-    try:
-        raw_data = load_data(dataset_path)
-        normalized_data = normalize_data(raw_data, mapping)
-    except Exception as e:
-        flash("Error loading dataset: " + str(e), "danger")
-        return redirect(url_for("upload_dataset"))
-
-    # 3) Count how many custom‑ratings this user already has
-    user = User.query.filter_by(username=session["username"]).first()
-    existing_count = Rating.query.filter_by(user_id=user.id, system="custom").count()
-
-    # 4) Render the page, passing existing_count into the template
-    return render_template(
-        "custom_index.html",
-        items=normalized_data,
-        system="custom",
-        dataset_id=dataset_id,
-        existing_ratings=existing_count
-    )
-
-
-@app.route("/custom_recommend", methods=["POST"])
-def custom_recommend():
-    if "username" not in session:
-        return render_template("login.html")
-
-    # 1) Load dataset_id, path & mapping
-    dataset_id = request.form.get("dataset_id")
-    if dataset_id:
-        ds = CustomDataset.query.filter_by(id=dataset_id).first()
-        if ds is None:
-            flash("Custom dataset not found.", "danger")
-            return redirect(url_for("choose_system"))
-        dataset_path = ds.dataset_path
-        mapping      = json.loads(ds.mapping)
-    else:
-        if "custom_dataset_path" not in session or "custom_mapping" not in session:
-            flash("Please upload a dataset and set its mapping first.", "danger")
-            return redirect(url_for("upload_dataset"))
-        dataset_path = session["custom_dataset_path"]
-        mapping      = json.loads(session["custom_mapping"])
-
-    # 2) Load & normalize items
-    try:
-        data            = load_data(dataset_path)
-        normalized_data = normalize_data(data, mapping)
-    except Exception as e:
-        flash("Error in dataset: " + str(e), "danger")
-        return render_template("custom_index.html", items=[], system="custom", dataset_id=dataset_id)
-
-    # 3) Count how many the user has already rated
-    user = User.query.filter_by(username=session["username"]).first()
-    existing_ratings = {
-        r.item_id: r.rating
-        for r in Rating.query.filter_by(user_id=user.id, system="custom")
-    }
-    existing_count = len(existing_ratings)
-
-    # 4) Pull any newly‑selected IDs
-    ids_str = request.form.get("selected_ids", "").strip()
-    selected_ids = ids_str.split(",") if ids_str else []
-
-    # 5) Enforce minimum only if they have <4 total so far
-    if existing_count < 4 and len(selected_ids) + existing_count < 4:
-        flash("Please rate at least 4 items before submitting.", "danger")
-        return render_template(
-            "custom_index.html",
-            items=normalized_data,
-            system="custom",
-            dataset_id=dataset_id,
-            existing_ratings=existing_count
-        )
-
-    # 6) Persist any new ratings
-    for sid in selected_ids:
-        rating_val = request.form.get(f"rating_{sid}")
-        if rating_val is None:
-            continue
-        try:
-            rating = float(rating_val)
-        except ValueError:
-            continue
-        rec = Rating.query.filter_by(
-            user_id=user.id, system="custom", item_id=sid
-        ).first()
-        if rec:
-            rec.rating    = rating
-            rec.timestamp = datetime.utcnow()
-        else:
-            db.session.add(Rating(
-                user_id=user.id,
-                system="custom",
-                item_id=sid,
-                rating=rating
-            ))
-    db.session.commit()
-
-    # 7) Re-load combined ratings after insertion
-    existing_ratings = {
-        r.item_id: r.rating
-        for r in Rating.query.filter_by(user_id=user.id, system="custom")
-    }
-
-    # 8) Build feature+rating vectors & run PULP
-    vectors = []
-    for item in normalized_data:
-        fv = item["featureVector"][:]
-        fv.append(existing_ratings.get(item["id"], 3.0))
-        vectors.append(fv)
-
-    n_features     = len(normalized_data[0]["featureVector"])
-    rated_vectors  = []
-    deltas         = []
-    for idx, item in enumerate(normalized_data):
-        if item["id"] in existing_ratings:
-            rated_vectors.append(vectors[idx])
-            deltas.append(existing_ratings[item["id"]])
-
-    _, profile_vector = create_problem_with_pulp_dict(
-        vectors=rated_vectors,
-        deltas=calculate_delta(deltas, n=n_features)
-    )
-    user.set_taste_vector("custom", profile_vector)
-    db.session.commit()
-
-    # 9) Compute estimated ratings & render recommendations
-    rated_items = []
-    for item in normalized_data:
-        est = calculate_estimated_rating(
-            user_profile=profile_vector,
-            item_features=item["featureVector"],
-            s=s,
-            n=n_features
-        )
-        rated_items.append((item["name"], item["image"], est, item["id"]))
-    rated_items.sort(key=lambda x: x[2], reverse=True)
-    top_recommendations = rated_items[:10]
-
-    return render_template(
-        "custom_recommendations.html",
-        recommendations=top_recommendations,
-        system="custom",
-        dataset_id=dataset_id
-    )
-
-
-
-@app.route("/delete_custom_dataset/<int:dataset_id>", methods=["GET"])
-def delete_custom_dataset(dataset_id):
+@app.route("/delete_dataset/<collection_name>", methods=["GET"])
+def delete_dataset(collection_name):
     if "username" not in session:
         return redirect(url_for("login"))
-    custom_dataset = CustomDataset.query.get(dataset_id)
-    if custom_dataset is None:
-        flash("Custom dataset not found.", "danger")
-    else:
-        db.session.delete(custom_dataset)
-        db.session.commit()
-        flash("Custom dataset deleted successfully.", "success")
+    if collection_name in {"movies", "restaurants"}:
+        flash("Cannot delete predefined datasets.", "danger")
+        return redirect(url_for("choose_system"))
+    if collection_name not in db.list_collection_names():
+        flash("Dataset not found.", "danger")
+        return redirect(url_for("choose_system"))
+    # Drop the collection
+    db[collection_name].drop()
+    # Remove from SYSTEMS
+    SYSTEMS.pop(collection_name, None)
+    # Remove associated ratings
+    ratings_collection.delete_many({"user_id": ObjectId(session["user_id"]), "system": collection_name})
+    # Remove taste vector
+    users_collection.update_one(
+        {"_id": ObjectId(session["user_id"])},
+        {"$unset": {f"taste_vector.{collection_name}": ""}}
+    )
+    flash(f"Dataset '{collection_name}' deleted successfully.", "success")
     return redirect(url_for("choose_system"))
-
 
 if __name__ == "__main__":
     app.run(debug=True)

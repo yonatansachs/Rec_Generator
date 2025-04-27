@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html {% if system == 'movies' %} dir="rtl" {% endif %}>
+<html {% if system == 'movie' %} dir="rtl" {% endif %}>
 <head>
   <meta charset="UTF-8">
   <title>
-    {% if system == 'movies' %}
+    {% if system == 'movie' %}
       פרטי פריט
     {% else %}
       Item Details
@@ -25,7 +25,7 @@
     {% else %}
       <a href="{{ url_for('dashboard', system=system) }}" class="btn btn-secondary mb-3">
     {% endif %}
-      {% if system == 'movies' %}
+      {% if system == 'movie' %}
         &larr; חזרה להמלצות
       {% else %}
         &larr; Back to Recommendations
@@ -42,7 +42,7 @@
 
         <div>
           <p>
-            {% if system == 'movies' %} דירוג נוכחי: {% else %} Current Rating: {% endif %}
+            {% if system == 'movie' %} דירוג נוכחי: {% else %} Current Rating: {% endif %}
             <span id="currentRatingDisplay">{{ current_rating }}</span>
           </p>
           <div class="star-rating" data-item-id="{{ item.id }}">
@@ -56,7 +56,7 @@
         </div>
 
         <button id="saveButton" class="btn btn-success mt-3">
-          {% if system == 'movies' %} שמור ודרג מחדש {% else %} Save and Re-rate {% endif %}
+          {% if system == 'movie' %} שמור ודרג מחדש {% else %} Save and Re-rate {% endif %}
         </button>
       </div>
     </div>
@@ -86,7 +86,7 @@
     document.getElementById('saveButton').addEventListener('click', () => {
       const newRating = document.getElementById('new_rating').value;
       if (newRating == 0) {
-        alert("{% if system == 'movies' %}אנא בחר דירוג לפני השמירה.{% else %}Please select a rating before saving.{% endif %}");
+        alert("{% if system == 'movie' %}אנא בחר דירוג לפני השמירה.{% else %}Please select a rating before saving.{% endif %}");
         return;
       }
       const itemId   = document.querySelector('.star-rating').dataset.itemId;

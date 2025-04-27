@@ -36,28 +36,7 @@
       </div>
     </div>
 
-    <div class="mb-4">
-      <h3>Your Custom Datasets</h3>
-      {% if custom_datasets %}
-        <div class="list-group">
-          {% for ds in custom_datasets %}
-            <div class="list-group-item d-flex justify-content-between align-items-center">
-              <a href="{{ url_for('custom_index', dataset_id=ds.id) }}" class="text-decoration-none">
-                {{ ds.dataset_name }} - Uploaded on {{ ds.timestamp.strftime('%Y-%m-%d %H:%M') }}
-              </a>
-              <!-- Trash icon with confirmation -->
-              <a href="{{ url_for('delete_custom_dataset', dataset_id=ds.id) }}"
-                 class="text-danger delete-icon"
-                 onclick="return confirm('Are you sure you want to delete this dataset?');">
-                &#128465;
-              </a>
-            </div>
-          {% endfor %}
-        </div>
-      {% else %}
-        <p>No custom datasets saved.</p>
-      {% endif %}
-    </div>
+
 
     <div>
       <a href="{{ url_for('upload_dataset') }}" class="btn btn-primary">Upload New Dataset</a>

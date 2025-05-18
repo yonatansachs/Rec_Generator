@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html {% if system == 'movie' %} dir="rtl" {% endif %}>
+<html {% if system == 'movie' %}dir="rtl"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <title>
@@ -15,21 +15,15 @@
     .star-rating { font-size: 1.5em; margin-top: 8px; }
     .star { cursor: pointer; color: #ccc; }
     .star.selected { color: gold; }
-    .card-img-top {
-      max-height: 150px;
-      object-fit: cover;
-    }
+    .card-img-top { max-height: 150px; object-fit: cover; }
+    .filter-card { border-radius: 0.5rem; box-shadow: 0 2px 6px rgba(0,0,0,0.1); }
   </style>
 </head>
 <body>
   <div class="container mt-4">
-    <!-- Back to System Selection -->
+
     <a href="{{ url_for('choose_system') }}" class="btn btn-secondary mb-3">
-      {% if system == 'movie' %}
-        &larr; חזרה לבחירת מערכת
-      {% else %}
-        &larr; Back to System Selection
-      {% endif %}
+      {% if system == 'movie' %}&larr; חזרה לבחירת מערכת{% else %}&larr; Back to System Selection{% endif %}
     </a>
 
     {% with messages = get_flashed_messages(with_categories=true) %}
@@ -40,22 +34,62 @@
       {% endif %}
     {% endwith %}
 
-    <h1 class="mb-4">
-      {% if system == 'movie' %}
-        דרג סרטים
-      {% else %}
-        Rate {{ system|capitalize }}
-      {% endif %}
-    </h1>
+    <h1 class="mb-4">{% if system == 'movie' %}דרג סרטים{% else %}Rate {{ system|capitalize }}{% endif %}</h1>
+
+    {% if system == 'Restaurants' %}
+    <!-- FILTERS -->
+    <div class="card filter-card mb-4 p-3">
+      <form method="get" action="{{ url_for('index') }}" class="row g-3 align-items-end">
+        <input type="hidden" name="system" value="{{ system }}">
+
+        <div class="col-auto">
+          <label for="priceSelect" class="form-label">Price</label>
+          <select id="priceSelect" name="price" class="form-select">
+            <option value="" {% if not current_price %}selected{% endif %}>Any</option>
+            <option value="$ - $$" {% if current_price=='$ - $$' %}selected{% endif %}>$ – $$</option>
+            <option value="$$ - $$$" {% if current_price=='$$ - $$$' %}selected{% endif %}>$$ – $$$</option>
+            <option value="$$$ - $$$$" {% if current_price=='$$$ - $$$$' %}selected{% endif %}>$$$ – $$$$</option>
+          </select>
+        </div>
+
+        <div class="col-auto">
+          <label for="cuisineSelect" class="form-label">Cuisine</label>
+          <select id="cuisineSelect" name="cuisine" class="form-select">
+            <option value="" {% if not current_cuisines or current_cuisines|length==0 %}selected{% endif %}>Any</option>
+            {% for cuisine in ['Steakhouse','European','Israeli','Vegetarian Friendly','Gluten Free Options'] %}
+              <option value="{{ cuisine }}" {% if cuisine in current_cuisines %}selected{% endif %}>{{ cuisine }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-auto">
+          <label for="mealTypeSelect" class="form-label">Meal Type</label>
+          <select id="mealTypeSelect" name="meal_type" class="form-select">
+            <option value="" {% if not current_meal %}selected{% endif %}>Any</option>
+            <option value="Breakfast" {% if current_meal=='Breakfast' %}selected{% endif %}>Breakfast</option>
+            <option value="Lunch"     {% if current_meal=='Lunch'     %}selected{% endif %}>Lunch</option>
+            <option value="Dinner"    {% if current_meal=='Dinner'    %}selected{% endif %}>Dinner</option>
+            <option value="Brunch"    {% if current_meal=='Brunch'    %}selected{% endif %}>Brunch</option>
+            <option value="Drinks"    {% if current_meal=='Drinks'    %}selected{% endif %}>Drinks</option>
+          </select>
+        </div>
+
+        <div class="col-auto d-flex gap-2">
+          <button type="submit" class="btn btn-primary">Apply Filters</button>
+          <a href="{{ url_for('index') }}?system={{ system }}" class="btn btn-outline-secondary">Reset Filters</a>
+        </div>
+      </form>
+    </div>
+    {% endif %}
 
     <!-- Search Bar -->
     <div class="mb-4">
-      <input type="text" id="searchInput" class="form-control"
+      <input type="text" id="searchInput" class="form-control form-control-lg"
              placeholder="{% if system == 'movie' %}חפש לפי שם...{% else %}Search by name...{% endif %}">
     </div>
 
-    <!-- Combined selection and rating form -->
-    <form action="/recommend?system={{ system }}" method="post" id="ratingForm">
+    <!-- Items and Rating Form -->
+    <form action="{{ url_for('recommend') }}?system={{ system }}" method="post" id="ratingForm">
       <div class="row" id="itemsContainer">
         {% for item in restaurants %}
           <div class="col-md-4 mb-4 item-card">
@@ -69,14 +103,10 @@
                   <p class="card-text">{{ item.description }}</p>
                 {% else %}
                   <p class="card-text text-muted">
-                    {% if system == 'movie' %}
-                      אין תיאור זמין.
-                    {% else %}
-                      No description available.
-                    {% endif %}
+                    {% if system == 'movie' %}אין תיאור זמין.{% else %}No description available.{% endif %}
                   </p>
                 {% endif %}
-                <!-- 5-star interactive widget -->
+                <!-- Star Rating Widget -->
                 <div class="star-rating" data-item-id="{{ item.id }}">
                   <span class="star" data-value="1">&#9733;</span>
                   <span class="star" data-value="2">&#9733;</span>
@@ -90,7 +120,6 @@
           </div>
         {% endfor %}
       </div>
-      <!-- Hidden field for selected item IDs -->
       <input type="hidden" name="selected_ids" id="selected_ids_field" value="">
     </form>
   </div>
@@ -98,41 +127,20 @@
   <!-- Fixed Footer -->
   <div class="fixed-bottom bg-light p-3 border-top">
     <div class="container d-flex justify-content-between align-items-center">
-      <!-- Left side: Logout button -->
       <div>
         <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">
-          {% if system == 'movie' %}
-            יציאה
-          {% else %}
-            Logout
-          {% endif %}
+          {% if system == 'movie' %}יציאה{% else %}Logout{% endif %}
         </a>
       </div>
-      <!-- Right side: Reset, My Ratings, and Show Recommendations -->
       <div>
         <a href="{{ url_for('reset_taste') }}?system={{ system }}" class="btn btn-warning me-2">
-          {% if system == 'movie' %}
-            אפס את הבחירות שלי
-          {% else %}
-            Reset My Selections
-          {% endif %}
+          {% if system == 'movie' %}אפס את הבחירות שלי{% else %}Reset My Selections{% endif %}
         </a>
-
-        <!-- My Ratings Button -->
-        <a href="/my_ratings?system={{ system }}" class="btn btn-info me-2">
-          {% if system == 'movie' %}
-            הדירוגים שלי
-          {% else %}
-            My Ratings
-          {% endif %}
+        <a href="{{ url_for('my_ratings') }}?system={{ system }}" class="btn btn-info me-2">
+          {% if system == 'movie' %}הדירוגים שלי{% else %}My Ratings{% endif %}
         </a>
-
         <button type="button" class="btn btn-success" onclick="handleShowRecommendations();">
-          {% if system == 'movie' %}
-            הצג המלצות
-          {% else %}
-            Show Recommendations
-          {% endif %}
+          {% if system == 'moviecont' %}הצג המלצות{% else %}Show Recommendations{% endif %}
         </button>
       </div>
     </div>
@@ -146,72 +154,36 @@
       const input = ratingElem.querySelector('input[type="hidden"]');
       stars.forEach(function(star) {
         star.addEventListener('click', function() {
-          const rating = parseInt(this.getAttribute('data-value'));
-          input.value = rating;
-          stars.forEach(function(s, index) {
-            s.classList.toggle('selected', index < rating);
-          });
+          const rating = parseInt(this.getAttribute('data-value')); input.value = rating;
+          stars.forEach(function(s, idx) { s.classList.toggle('selected', idx < rating); });
         });
       });
     });
-
-    // Simple search filtering
+    // SEARCH FILTERING
     const searchInput = document.getElementById('searchInput');
     const itemCards = document.querySelectorAll('.item-card');
     searchInput.addEventListener('keyup', function() {
       const filter = searchInput.value.toLowerCase();
-      itemCards.forEach(function(card) {
+      itemCards.forEach(card => {
         const title = card.querySelector('.card-title').textContent.toLowerCase();
         card.style.display = title.includes(filter) ? 'block' : 'none';
       });
     });
-
-    // Whether user already has a taste vector
+    // RECOMMENDATIONS CLICK
     var userHasVector = {{ 'true' if user_has_vector else 'false' }};
-
     function handleShowRecommendations() {
       let selectedIds = [];
-      document.querySelectorAll('.star-rating').forEach(function(container) {
-        const itemId = container.getAttribute('data-item-id');
-        const ratingValue = parseInt(container.querySelector('input[type="hidden"]').value);
-        if (ratingValue > 0) {
-          selectedIds.push(itemId);
-        }
+      document.querySelectorAll('.star-rating').forEach(container => {
+        const id = container.getAttribute('data-item-id');
+        const value = parseInt(container.querySelector('input').value);
+        if (value > 0) selectedIds.push(id);
       });
-
-      if (userHasVector) {
-        // If user already has a vector
-        if (selectedIds.length > 0) {
-          let hiddenInput = document.getElementById('selected_ids_field');
-          if (!hiddenInput) {
-            hiddenInput = document.createElement('input');
-            hiddenInput.type = 'hidden';
-            hiddenInput.name = 'selected_ids';
-            hiddenInput.id = 'selected_ids_field';
-            document.getElementById('ratingForm').appendChild(hiddenInput);
-          }
-          hiddenInput.value = selectedIds.join(',');
-          document.getElementById('ratingForm').submit();
-        } else {
-          window.location.href = "{{ url_for('show_recommendations') }}?system={{ system }}";
-        }
-      } else {
-        // If user does not have a vector, require at least 4 ratings
-        if (selectedIds.length < 4) {
-          alert("{% if system == 'movie' %}יש לדרג לפחות 4 פריטים לפני השליחה.{% else %}Please rate at least 4 items before submitting.{% endif %}");
-          return;
-        }
-        let hiddenInput = document.getElementById('selected_ids_field');
-        if (!hiddenInput) {
-          hiddenInput = document.createElement('input');
-          hiddenInput.type = 'hidden';
-          hiddenInput.name = 'selected_ids';
-          hiddenInput.id = 'selected_ids_field';
-          document.getElementById('ratingForm').appendChild(hiddenInput);
-        }
-        hiddenInput.value = selectedIds.join(',');
-        document.getElementById('ratingForm').submit();
+      if (!userHasVector && selectedIds.length < 4) {
+        alert("{% if system=='movie' %}יש לדרג לפחות 4 פריטים לפני השליחה.{% else %}Please rate at least 4 items before submitting.{% endif %}");
+        return;
       }
+      document.getElementById('selected_ids_field').value = selectedIds.join(',');
+      document.getElementById('ratingForm').submit();
     }
   </script>
 </body>

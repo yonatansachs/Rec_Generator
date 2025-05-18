@@ -221,26 +221,52 @@ def choose_system():
     if not available:
         flash("No datasets available. Upload one!", "warning")
     return render_template("choose_system.html", systems=available)
-
 @app.route("/index")
 def index():
-    if "username" not in session: return redirect(url_for("login"))
+    if "username" not in session:
+        return redirect(url_for("login"))
+
     system = request.args.get("system", "restaurants")
     if system not in SYSTEMS:
         flash("Invalid system selected.", "danger")
         return redirect(url_for("choose_system"))
-    mapping = SYSTEMS[system]["mapping"]
+
+    # Raw inputs
+    price_raw    = request.args.get("price", "")
+    cuisine_raw  = request.args.get("cuisine", "")
+    meal_raw     = request.args.get("meal_type", "")
+
+    # Clean up: only keep non-empty selections
+    cuisines = [cuisine_raw] if cuisine_raw else []
+    # Build feature filters
+    feature_filters = []
+    if price_raw:
+        feature_filters.append(f"priceLevel.{price_raw}")
+    if cuisines:
+        feature_filters += [f"cuisines.{c}" for c in cuisines]
+    if meal_raw:
+        feature_filters.append(f"mealTypes.{meal_raw}")
+
+    # If any filters, apply $all; otherwise empty query
+    mongo_q = {"features": {"$all": feature_filters}} if feature_filters else {}
+
     try:
-        norm = normalize(load_data(system), mapping)
+        raw_items = db[system].find(mongo_q)
+        items     = normalize(list(raw_items), SYSTEMS[system]["mapping"])
     except Exception as e:
-        flash(f"Dataset error: {e}", "danger"); norm = []
-    has_vec = get_taste(session["user_id"], system) is not None
+        flash(f"Error loading data: {e}", "danger")
+        items = []
+
     return render_template(
         "index.html",
-        restaurants=norm,
+        restaurants=items,
         system=system,
-        user_has_vector=has_vec
+        current_price=price_raw,
+        current_cuisines=cuisines,
+        current_meal=meal_raw,
+        user_has_vector=(get_taste(session["user_id"], system) is not None)
     )
+
 
 @app.route("/show_recommendations")
 def show_recommendations():

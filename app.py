@@ -14,10 +14,11 @@ from pulp import (
     LpProblem, LpMinimize, LpVariable, lpSum, value,
     LpBinary, LpInteger, LpContinuous, PULP_CBC_CMD
 )
+from dotenv import load_dotenv
+load_dotenv()   # this will read .env and populate os.environ
 
 # ─────────────────────────── Flask setup ────────────────────────────
 app = Flask(__name__)
-app.secret_key = "your_secret_key_here"          # ← change in production!
 
 app.config.update(
     SESSION_TYPE="filesystem",
@@ -281,11 +282,16 @@ def show_recommendations():
         return render_template("index.html", restaurants=norm, system=system, user_has_vector=False)
     return redirect(url_for("dashboard", system=system))
 
-@app.route("/recommend", methods=["POST"])
+@app.route("/recommend", methods=["GET", "POST"])
 def recommend():
-    if "username" not in session: return redirect(url_for("login"))
+    if "username" not in session:
+        return redirect(url_for("login"))
+
     system = request.args.get("system", "restaurants")
-    if system not in SYSTEMS: flash("Invalid system", "danger"); return redirect(url_for("choose_system"))
+    if system not in SYSTEMS:
+        flash("Invalid system", "danger")
+        return redirect(url_for("choose_system"))
+
     mapping = SYSTEMS[system]["mapping"]
     try:
         norm = normalize(load_data(system), mapping)
@@ -293,46 +299,55 @@ def recommend():
         flash(f"Dataset error: {e}", "danger")
         return render_template("index.html", restaurants=[], system=system, user_has_vector=False)
 
-    ids_str = request.form.get("selected_ids", "").strip()
-    if not ids_str:
-        flash("Select at least one item.", "danger")
-        return render_template("index.html", restaurants=norm, system=system, user_has_vector=False)
-
-    selected_ids = ids_str.split(",")
     u_id = session["user_id"]
-    for sid in selected_ids:
-        rating_val = request.form.get(f"rating_{sid}")
-        if not rating_val: continue
-        try: r = float(rating_val)
-        except ValueError: continue
-        ratings_collection.update_one(
-            {"user_id": ObjectId(u_id), "system": system, "item_id": sid},
-            {"$set": {"rating": r, "timestamp": datetime.utcnow()}},
-            upsert=True,
-        )
 
+    # ───── HANDLE NEW RATINGS IF POST ─────
+    if request.method == "POST":
+        ids_str = request.form.get("selected_ids", "").strip()
+        if ids_str:
+            selected_ids = ids_str.split(",")
+            for sid in selected_ids:
+                rating_val = request.form.get(f"rating_{sid}")
+                if not rating_val:
+                    continue
+                try:
+                    r = float(rating_val)
+                except ValueError:
+                    continue
+                ratings_collection.update_one(
+                    {"user_id": ObjectId(u_id), "system": system, "item_id": sid},
+                    {"$set": {"rating": r, "timestamp": datetime.utcnow()}},
+                    upsert=True,
+                )
+
+    # ───── LOAD ALL EXISTING RATINGS ─────
     existing = {
         r["item_id"]: r["rating"]
         for r in ratings_collection.find({"user_id": ObjectId(u_id), "system": system})
     }
-    if not get_taste(u_id, system) and len(existing) < 4:
-        flash("Rate at least 4 items.", "danger")
+
+    if len(existing) < 4:
+        flash("Please rate at least 4 items to get recommendations.", "danger")
         return render_template("index.html", restaurants=norm, system=system, user_has_vector=False)
 
-    vectors=[]
+    # ───── BUILD VECTORS & PROFILE ─────
+    vectors = []
     for it in norm:
         fv = it["featureVector"][:] + [existing.get(it["id"], 3.0)]
         vectors.append(fv)
+
     n = len(norm[0]["featureVector"])
-    rated_vecs=[]; deltas=[]
+    rated_vecs, deltas = [], []
     for it in norm:
         if it["id"] in existing:
             rated_vecs.append(vectors[norm.index(it)])
             deltas.append(existing[it["id"]])
+
     profile = solve_profile(rated_vecs, calc_delta(deltas, n))
     set_taste(u_id, system, profile)
 
-    rated=[]
+    # ───── COMPUTE RECOMMENDATIONS ─────
+    rated = []
     for it in norm:
         rated.append((
             it["name"],
@@ -341,7 +356,9 @@ def recommend():
             it["id"],
         ))
     rated.sort(key=lambda x: x[2], reverse=True)
+
     return render_template("recommendations.html", recommendations=rated[:10], system=system)
+
 
 @app.route("/update_ratings", methods=["POST"])
 def update_ratings():

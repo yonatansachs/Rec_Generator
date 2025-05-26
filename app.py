@@ -1,5 +1,6 @@
 import json
 import hashlib
+import os
 from datetime import datetime
 
 from bson import ObjectId
@@ -28,9 +29,7 @@ Session(app)
 print("Session backend:", app.session_interface)
 
 # ───────────────────────── MongoDB Atlas ────────────────────────────
-MONGO_URI = (
-    "MONGO_URI"
-)
+MONGO_URI = os.environ.get("MONGO_URI")
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["Rec_Generator"]
 print("Connected to database:", db.name)

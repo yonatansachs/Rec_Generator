@@ -29,8 +29,7 @@ print("Session backend:", app.session_interface)
 
 # ───────────────────────── MongoDB Atlas ────────────────────────────
 MONGO_URI = (
-    "mongodb+srv://yonatansachs04:KAwr8Nc17qt4fV12"
-    "@recgenerator.h80kkkm.mongodb.net/?retryWrites=true&w=majority&appName=RecGenerator"
+    "MONGO_URI"
 )
 mongo_client = MongoClient(MONGO_URI)
 db = mongo_client["Rec_Generator"]

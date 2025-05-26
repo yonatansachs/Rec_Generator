@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html {% if system == 'movie' %}dir="rtl"{% endif %}>
+<html {% if system =='movie' %}dir="rtl"{% endif %}>
 <head>
   <meta charset="UTF-8">
   <title>
@@ -170,7 +170,7 @@
       });
     });
     // RECOMMENDATIONS CLICK
-    var userHasVector = {{ 'true' if user_has_vector else 'false' }};
+    var userHasVector = {{'true' if user_has_vector else 'false' }};
     function handleShowRecommendations() {
       let selectedIds = [];
       document.querySelectorAll('.star-rating').forEach(container => {

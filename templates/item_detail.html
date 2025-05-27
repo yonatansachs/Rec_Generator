@@ -1,103 +1,67 @@
 <!DOCTYPE html>
-<html {% if system == 'movie' %} dir="rtl" {% endif %}>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>
-    {% if system == 'movie' %}
-      פרטי פריט
-    {% else %}
-      Item Details
-    {% endif %}
-  </title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
-  <style>
-    .star-rating { font-size: 2em; margin-top: 8px; }
-    .star { cursor: pointer; color: #ccc; }
-    .star.selected { color: gold; }
-    .card-img-top { max-height: 300px; object-fit: cover; }
-  </style>
+    <meta charset="UTF-8">
+    <title>{{ item.name }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+    <style>
+        .star {
+            font-size: 2rem;
+            cursor: pointer;
+            color: #ccc;
+        }
+
+        .star.selected {
+            color: gold;
+        }
+
+        .card-img-top {
+            width: 100%;
+            max-height: 400px;
+            object-fit: cover;
+        }
+    </style>
 </head>
-<body>
-  <div class="container mt-4">
-    <!-- Back to recommendations/dashboard -->
-    {% if system == 'custom' and dataset_id %}
-      <a href="{{ url_for('dashboard', system=system, dataset_id=dataset_id) }}" class="btn btn-secondary mb-3">
-    {% else %}
-      <a href="{{ url_for('dashboard', system=system) }}" class="btn btn-secondary mb-3">
-    {% endif %}
-      {% if system == 'movie' %}
-        &larr; חזרה להמלצות
-      {% else %}
-        &larr; Back to Recommendations
-      {% endif %}
-    </a>
-
+<body class="container mt-5">
     <div class="card">
-      {% if item.image %}
         <img src="{{ item.image }}" class="card-img-top" alt="{{ item.name }}">
-      {% endif %}
-      <div class="card-body">
-        <h3 class="card-title">{{ item.name }}</h3>
-        <p class="card-text">{{ item.description }}</p>
+        <div class="card-body">
+            <h1 class="card-title">{{ item.name }}</h1>
+            <p class="card-text">{{ item.description }}</p>
+            <div class="mb-3">
+                <label class="form-label">Your Rating:</label>
+                <div id="stars" class="d-flex">
+                    {% for i in range(1, 6) %}
+                        <span class="star {% if i <= current_rating %}selected{% endif %}" data-value="{{ i }}">&#9733;</span>
+                    {% endfor %}
+                </div>
+            </div>
 
-        <div>
-          <p>
-            {% if system == 'movie' %} דירוג נוכחי: {% else %} Current Rating: {% endif %}
-            <span id="currentRatingDisplay">{{ current_rating }}</span>
-          </p>
-          <div class="star-rating" data-item-id="{{ item.id }}">
-            <span class="star" data-value="1">&#9733;</span>
-            <span class="star" data-value="2">&#9733;</span>
-            <span class="star" data-value="3">&#9733;</span>
-            <span class="star" data-value="4">&#9733;</span>
-            <span class="star" data-value="5">&#9733;</span>
-            <input type="hidden" name="new_rating" id="new_rating" value="0">
-          </div>
+            <!-- We use a hidden form to send the rating using GET to the correct blueprint route -->
+            <form id="ratingForm" action="{{ url_for('rating.update_item_rating') }}" method="get">
+                <input type="hidden" name="system" value="{{ system }}">
+                <input type="hidden" name="id" value="{{ item.id }}">
+                <input type="hidden" name="rating" id="ratingInput" value="{{ current_rating or 0 }}">
+                <button type="submit" class="btn btn-primary">Save and Re-rate</button>
+                <a href="{{ url_for('item.index', system=system) }}" class="btn btn-secondary ms-2">Back</a>
+            </form>
         </div>
-
-        <button id="saveButton" class="btn btn-success mt-3">
-          {% if system == 'movie' %} שמור ודרג מחדש {% else %} Save and Re-rate {% endif %}
-        </button>
-      </div>
     </div>
-  </div>
 
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-  <script>
-    // Star widget setup
-    document.querySelectorAll('.star-rating').forEach(ratingElem => {
-      const stars = ratingElem.querySelectorAll('.star');
-      const input = ratingElem.querySelector('input[type="hidden"]');
-      let cur = parseInt("{{ current_rating }}");
-      if (cur > 0) {
-        input.value = cur;
-        stars.forEach((s,i) => s.classList.toggle('selected', i < cur));
-      }
-      stars.forEach(star => {
-        star.addEventListener('click', () => {
-          const val = parseInt(star.dataset.value);
-          input.value = val;
-          stars.forEach((s,i) => s.classList.toggle('selected', i < val));
+    <script>
+        const stars = document.querySelectorAll('.star');
+        const ratingInput = document.getElementById('ratingInput');
+        let selectedRating = parseInt(ratingInput.value);
+
+        stars.forEach((star, index) => {
+            star.addEventListener('click', () => {
+                selectedRating = index + 1;
+                ratingInput.value = selectedRating;
+                stars.forEach((s, i) => {
+                    s.classList.toggle('selected', i < selectedRating);
+                });
+            });
         });
-      });
-    });
-
-    // On Save, include dataset_id for custom systems
-    document.getElementById('saveButton').addEventListener('click', () => {
-      const newRating = document.getElementById('new_rating').value;
-      if (newRating == 0) {
-        alert("{% if system == 'movie' %}אנא בחר דירוג לפני השמירה.{% else %}Please select a rating before saving.{% endif %}");
-        return;
-      }
-      const itemId   = document.querySelector('.star-rating').dataset.itemId;
-      const system   = "{{ system }}";
-      const datasetId= "{{ dataset_id }}";  // empty string if not custom
-      let url = `/update_item_rating?system=${system}&id=${itemId}&rating=${newRating}`;
-      if (system === 'custom' && datasetId) {
-        url += `&dataset_id=${datasetId}`;
-      }
-      window.location.href = url;
-    });
-  </script>
+    </script>
 </body>
 </html>

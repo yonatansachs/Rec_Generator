@@ -29,7 +29,7 @@
       <h3>Pre-defined Systems</h3>
       <div class="list-group">
         {% for key, system in systems.items() %}
-          <a href="{{ url_for('index', system=key) }}" class="list-group-item list-group-item-action">
+          <a href="{{ url_for('item.index', system=key) }}" class="list-group-item list-group-item-action">
             {{ system.display if system.display is defined else key|capitalize }}
           </a>
         {% endfor %}
@@ -39,7 +39,7 @@
 
 
     <div>
-      <a href="{{ url_for('upload_dataset') }}" class="btn btn-primary">Upload New Dataset</a>
+      <a href="{{ url_for('dataset.upload_dataset') }}" class="btn btn-primary">Upload New Dataset</a>
     </div>
   </div>
 

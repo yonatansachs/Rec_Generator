@@ -23,7 +23,7 @@
 </head>
 <body>
   <!-- Wrap the recommendations in a form that posts to /update_ratings -->
-  <form action="/update_ratings?system={{ system }}" method="post" id="updateForm">
+  <form action="{{ url_for('rating.update_ratings') }}?system={{ system }}" method="post" id="updateForm">
     <div class="container mt-4">
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -94,14 +94,14 @@
         {% endif %}
       </a>
       <div>
-        <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">
+        <a href="{{ url_for('auth.logout') }}" class="btn btn-outline-secondary me-2">
           {% if system == 'movie' %}
             יציאה
           {% else %}
             Logout
           {% endif %}
         </a>
-        <a href="{{ url_for('reset_taste') }}?system={{ system }}" class="btn btn-warning me-2">
+        <a href="{{ url_for('rec.reset_taste') }}?system={{ system }}" class="btn btn-warning me-2">
           {% if system == 'movie' %}
             אפס את הבחירות שלי
           {% else %}

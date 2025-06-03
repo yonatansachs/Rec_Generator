@@ -74,6 +74,22 @@
           </select>
         </div>
 
+      <!-- ====== START “Near Me” filter ====== -->
+        <div class="col-auto">
+          <div class="form-check">
+            <input class="form-check-input"
+                   type="checkbox"
+                   id="nearestCheckbox"
+                   name="nearest"
+                   value="true"
+                   {% if request.args.get('nearest') == 'true' %}checked{% endif %}>
+            <label class="form-check-label" for="nearestCheckbox">Near Me</label>
+          </div>
+          <!-- These two hidden inputs will hold the user’s coords -->
+          <input type="hidden" id="userLat" name="user_lat" value="{{ request.args.get('user_lat', '') }}">
+          <input type="hidden" id="userLon" name="user_lon" value="{{ request.args.get('user_lon', '') }}">
+        </div>
+      <!-- ====== END “Near Me” filter ====== -->
         <div class="col-auto d-flex gap-2">
           <button type="submit" class="btn btn-primary">Apply Filters</button>
           <a href="{{ url_for('item.index', system=system) }}" class="btn btn-outline-secondary">Reset Filters</a>
@@ -219,12 +235,63 @@
   });
   </script>
 
+<!-- ====== JavaScript for “Near Me” ====== -->
+<script>
+(function() {
+
+  const nearestCheckbox = document.getElementById('nearestCheckbox');
+  const userLatInput    = document.getElementById('userLat');
+  const userLonInput    = document.getElementById('userLon');
+  const filterForm      = document.getElementById('filterForm');
+
+  nearestCheckbox.addEventListener('change', function() {
+    console.log("☑️ Near Me checkbox changed. Checked?", nearestCheckbox.checked);
+    if (!nearestCheckbox.checked) {
+      userLatInput.value = '';
+      userLonInput.value = '';
+    }
+  });
+
+  filterForm.addEventListener('submit', function(event) {
 
 
+    if (nearestCheckbox.checked && (!userLatInput.value || !userLonInput.value)) {
+      event.preventDefault();
+      console.log("📡 About to request geolocation...");
+      if (!navigator.geolocation) {
+        alert('Your browser does not support geolocation.');
+        nearestCheckbox.checked = false;
+        return;
+      }
 
+      navigator.geolocation.getCurrentPosition(
+        function(position) {
+          console.log(
+            "🟢 got position:",
+            position.coords.latitude,
+            position.coords.longitude
+          );
+          userLatInput.value = position.coords.latitude;
+          userLonInput.value = position.coords.longitude;
+          console.log(
+            "🌐 Hidden fields set to:",
+            "user_lat=", userLatInput.value,
+            "user_lon=", userLonInput.value
+          );
+          filterForm.submit();
+        },
+        function(error) {
 
-
-
-
+          alert('Could not fetch your location. Please check browser permissions.');
+          nearestCheckbox.checked = false;
+          userLatInput.value = '';
+          userLonInput.value = '';
+        }
+      );
+    }
+  });
+})();
+</script>
+<!-- ====== End of JavaScript for “Near Me” ====== -->
 </body>
 </html>

@@ -10,6 +10,8 @@ SYSTEMS = {
             "description": "description",
             "image": "image",
             "featureVector": "featureVector",
+            "latitude": "latitude",
+            "longitude": "longitude"
         },
     },
     "movie": {

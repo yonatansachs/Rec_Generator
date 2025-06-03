@@ -39,7 +39,7 @@
     {% if system == 'Restaurants' %}
     <!-- FILTERS -->
     <div class="card filter-card mb-4 p-3">
-    <form method="get" action="{{ url_for('item.index') }}" class="row g-3 align-items-end">
+    <form id="filterForm" method="get" action="{{ url_for('item.index') }}" class="row g-3 align-items-end">
         <input type="hidden" name="system" value="{{ system }}">
 
         <div class="col-auto">
@@ -186,5 +186,45 @@
       document.getElementById('ratingForm').submit();
     }
   </script>
+
+  <script>
+  document.addEventListener("click", function(event) {
+    const el = event.target;
+    const payload = {
+      tag: el.tagName,
+      cls: el.className || null,
+      txt: el.innerText.slice(0,100) || null,
+      timestamp: new Date().toISOString(),
+      page: window.location.pathname,
+      eventType: "click"
+    };
+
+    if (el.classList.contains("star")) {
+      const ratingContainer = el.closest(".star-rating");
+      if (ratingContainer) {
+        // grab the item name from the nearest card title
+        const cardBody = ratingContainer.closest(".card-body");
+        const nameElem = cardBody?.querySelector(".card-title");
+        payload.eventType = "rating";
+        payload.itemName  = nameElem?.innerText || null;
+        payload.rating    = parseInt(el.dataset.value, 10);
+      }
+    }
+
+    fetch("/api/log_click", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).catch(console.error);
+  });
+  </script>
+
+
+
+
+
+
+
+
 </body>
 </html>

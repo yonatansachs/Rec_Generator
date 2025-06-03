@@ -3,7 +3,7 @@ from datetime import datetime
 from bson import ObjectId
 from flask import jsonify
 
-from db.collections import SYSTEMS, ratings_collection
+from db.collections import SYSTEMS, get_ratings_collection
 
 
 def add_ratings(user_id, system, ratings):
@@ -21,8 +21,40 @@ def add_ratings(user_id, system, ratings):
             val = float(val)
         except ValueError:
             continue
-        ratings_collection.update_one(
+        get_ratings_collection.update_one(
             {"user_id": ObjectId(user_id), "system": system, "item_id": item_id},
             {"$set": {"rating": val, "timestamp": datetime.utcnow()}},
             upsert=True
         )
+
+
+def add_rating(user_id, system, item_id, value):
+    get_ratings_collection().update_one(
+        {"user_id": user_id, "system": system, "item_id": item_id},
+        {"$set": {"value": value}},
+        upsert=True
+    )
+
+def get_ratings(user_id, system):
+    cursor = get_ratings_collection().find({"user_id": user_id, "system": system})
+    return list(cursor)
+
+def update_rating(user_id, system, item_id, value):
+    result = get_ratings_collection().update_one(
+        {"user_id": user_id, "system": system, "item_id": item_id},
+        {"$set": {"value": value}}
+    )
+    return result.modified_count > 0
+
+def delete_rating(user_id, system, item_id):
+    result = get_ratings_collection().delete_one(
+        {"user_id": user_id, "system": system, "item_id": item_id}
+    )
+    return result.deleted_count > 0
+
+def delete_all_ratings(user_id, system):
+    result = get_ratings_collection().delete_many({
+        "user_id": user_id,
+        "system": system
+    })
+    return result.deleted_count

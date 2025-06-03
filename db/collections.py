@@ -78,3 +78,6 @@ def load_existing_collections() -> None:
             "mapping": mapping,
         }
         print(f"Registered '{cname}' with mapping {mapping}")
+
+def get_click_logs_collection():
+    return get_db()["click_logs"]

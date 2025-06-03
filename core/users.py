@@ -11,6 +11,22 @@ def create_user(username, password):
         "taste_vector": {},
     }).inserted_id
 
+# ─────────── User Management ───────────
+
+def get_user(username):
+    user = get_users_collection().find_one({"username": username}, {"_id": 0, "password_hash": 0})
+    return user
+
+def update_user(username, updated_fields):
+    if "password" in updated_fields:
+        updated_fields["password_hash"] = hash_pw(updated_fields.pop("password"))
+    result = get_users_collection().update_one({"username": username}, {"$set": updated_fields})
+    return result.modified_count > 0
+
+def delete_user(username):
+    result = get_users_collection().delete_one({"username": username})
+    return result.deleted_count > 0
+
 def find_user(username):
     return get_users_collection().find_one({"username": username})
 

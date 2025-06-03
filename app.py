@@ -3,6 +3,7 @@ from flask_session import Session
 from dotenv import load_dotenv
 import os
 
+from click_logger import click_api
 from config_setup import configure_app
 from db.collections import create_indexes, load_existing_collections
 from db.connection import init_db
@@ -25,6 +26,7 @@ load_existing_collections()
 
 # ─────── Register All API Routes ───────
 register_all_routes(app)
+app.register_blueprint(click_api, url_prefix="/api")
 
 # ──────────────── Root Route ────────────────
 @app.route("/")

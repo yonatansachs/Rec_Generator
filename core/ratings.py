@@ -29,11 +29,28 @@ def add_ratings(user_id, system, ratings):
 
 
 def add_rating(user_id, system, item_id, value):
-    get_ratings_collection().update_one(
-        {"user_id": user_id, "system": system, "item_id": item_id},
-        {"$set": {"value": value}},
-        upsert=True
-    )
+    collection = get_ratings_collection()
+
+    # בדיקה אם הדירוג כבר קיים
+    existing = collection.find_one({
+        "user_id": user_id,
+        "system": system,
+        "item_id": item_id
+    })
+
+    if existing:
+        return False  # כבר קיים דירוג
+
+    # אם לא קיים – תוסיף
+    collection.insert_one({
+        "user_id": user_id,
+        "system": system,
+        "item_id": item_id,
+        "value": value,
+        "timestamp": datetime.utcnow()
+    })
+    return True
+
 
 def get_ratings(user_id, system):
     cursor = get_ratings_collection().find({"user_id": user_id, "system": system})

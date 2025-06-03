@@ -9,16 +9,21 @@ from core.systems import create_system, get_system, update_system, delete_system
 api_routes = Blueprint("api", __name__)
 
 # <---CRUD FOR USER--->
-@api_routes.route("/api/create_user", methods=["POST"])
+@api_routes.route("/create_user", methods=["POST"])
 def api_create_user():
     data = request.json
     user_name = data.get("user_name")
     password = data.get("password")
-    create_user(user_name, password)
+
+    new_user_id = create_user(user_name, password)
+    if not new_user_id:
+        return jsonify({"error": "Username already exists."}), 400
+
     return jsonify({"message": "User added."}), 201
 
+
 # Read user
-@api_routes.route("/api/get_user/<user_id>", methods=["GET"])
+@api_routes.route("/get_user/<user_id>", methods=["GET"])
 def api_get_user(user_id):
     user = get_user(user_id)
     if user:
@@ -27,7 +32,7 @@ def api_get_user(user_id):
         return jsonify({"error": "User not found."}), 404
 
 # Update user
-@api_routes.route("/api/update_user/<user_id>", methods=["PUT"])
+@api_routes.route("/update_user/<user_id>", methods=["PUT"])
 def api_update_user(user_id):
     data = request.json
     updated_fields = data.get("updated_fields", {})
@@ -38,7 +43,7 @@ def api_update_user(user_id):
         return jsonify({"error": "User not found or update failed."}), 400
 
 # Delete user
-@api_routes.route("/api/delete_user/<user_id>", methods=["DELETE"])
+@api_routes.route("/delete_user/<user_id>", methods=["DELETE"])
 def api_delete_user(user_id):
     success = delete_user(user_id)
     if success:
@@ -50,7 +55,7 @@ def api_delete_user(user_id):
 
 #-------- MULTIPLE RATING CRUD--------
 # Add ratings in batch
-@api_routes.route("/api/batch_ratings", methods=["POST"])
+@api_routes.route("/batch_ratings", methods=["POST"])
 def api_batch_ratings():
     data = request.json
     user_name = data.get("user_id")
@@ -61,12 +66,12 @@ def api_batch_ratings():
 
 
 # Get all ratings for a user and system
-@api_routes.route("/api/ratings/<user_id>/<system>", methods=["GET"])
+@api_routes.route("/ratings/<user_id>/<system>", methods=["GET"])
 def api_get_ratings(user_id, system):
     ratings = get_ratings(user_id, system)
     return jsonify(ratings), 200
 
-@api_routes.route("/api/ratings/<user_id>/<system>", methods=["DELETE"])
+@api_routes.route("/ratings/<user_id>/<system>", methods=["DELETE"])
 def api_delete_all_ratings(user_id, system):
     deleted_count = delete_all_ratings(user_id, system)
     return jsonify({
@@ -76,15 +81,18 @@ def api_delete_all_ratings(user_id, system):
 
 #-------- SINGLE RATING CRUD ---------
 # Add a single rating
-@api_routes.route("/api/rating", methods=["POST"])
+@api_routes.route("/rating", methods=["POST"])
 def api_add_rating():
     data = request.json
-    add_rating(data["user_id"], data["system"], data["item_id"], data["value"])
+    success = add_rating(data["user_id"], data["system"], data["item_id"], data["value"])
+    if not success:
+        return jsonify({"error": "Rating already exists for this item."}), 400
+
     return jsonify({"message": "Rating added."}), 201
 
 
 # Update a single rating
-@api_routes.route("/api/rating", methods=["PUT"])
+@api_routes.route("/rating", methods=["PUT"])
 def api_update_rating():
     data = request.json
     success = update_rating(data["user_id"], data["system"], data["item_id"], data["value"])
@@ -94,7 +102,7 @@ def api_update_rating():
         return jsonify({"error": "Rating not found."}), 404
 
 # Delete a single rating
-@api_routes.route("/api/rating", methods=["DELETE"])
+@api_routes.route("/rating", methods=["DELETE"])
 def api_delete_rating():
     data = request.json
     success = delete_rating(data["user_id"], data["system"], data["item_id"])
@@ -106,7 +114,7 @@ def api_delete_rating():
 
 #------- SYSTEM CRUD-------
 
-@api_routes.route("/api/system", methods=["POST"])
+@api_routes.route("/system", methods=["POST"])
 def api_create_system():
     data = request.json
     system_id = data.get("system_id")
@@ -115,14 +123,14 @@ def api_create_system():
     create_system(system_id, display, mapping)
     return jsonify({"message": "System created."}), 201
 
-@api_routes.route("/api/system/<system_id>", methods=["GET"])
+@api_routes.route("/system/<system_id>", methods=["GET"])
 def api_get_system(system_id):
     system = get_system(system_id)
     if system:
         return jsonify(system), 200
     return jsonify({"error": "System not found"}), 404
 
-@api_routes.route("/api/system/<system_id>", methods=["PUT"])
+@api_routes.route("/system/<system_id>", methods=["PUT"])
 def api_update_system(system_id):
     updates = request.json.get("updates", {})
     success = update_system(system_id, updates)
@@ -130,14 +138,14 @@ def api_update_system(system_id):
         return jsonify({"message": "System updated."}), 200
     return jsonify({"error": "System not found or update failed."}), 400
 
-@api_routes.route("/api/system/<system_id>", methods=["DELETE"])
+@api_routes.route("/system/<system_id>", methods=["DELETE"])
 def api_delete_system(system_id):
     success = delete_system(system_id)
     if success:
         return jsonify({"message": "System deleted."}), 200
     return jsonify({"error": "System not found or delete failed."}), 400
 
-@api_routes.route("/api/systems", methods=["GET"])
+@api_routes.route("/systems", methods=["GET"])
 def api_list_systems():
     return jsonify(list_systems()), 200
 

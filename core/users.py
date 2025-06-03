@@ -5,6 +5,8 @@ from utils.security import hash_pw
 # ─────────── User Creation & Lookup ───────────
 
 def create_user(username, password):
+    if find_user(username):  # אם המשתמש כבר קיים
+        return None
     return get_users_collection().insert_one({
         "username": username,
         "password_hash": hash_pw(password),

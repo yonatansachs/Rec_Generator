@@ -56,7 +56,7 @@ def load_existing_collections() -> None:
     """
     db = get_db()
     exclude = {
-        "users", "ratings", "system.indexes", "system_metadata"
+        "users", "ratings", "system.indexes", "system_metadata","click_logs"
     }
     for cname in db.list_collection_names():
         if cname in exclude or cname in SYSTEMS:

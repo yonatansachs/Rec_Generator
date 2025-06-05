@@ -63,6 +63,7 @@ def recommend():
 
     # ───── HANDLE NEW RATINGS IF POST ─────
     if request.method == "POST":
+        privacy_mode = request.form.get("privacy_mode") == "1"
         ids_str = request.form.get("selected_ids", "").strip()
         if ids_str:
             selected_ids = ids_str.split(",")
@@ -74,17 +75,39 @@ def recommend():
                     r = float(rating_val)
                 except ValueError:
                     continue
-                ratings_collection.update_one(
-                    {"user_id": ObjectId(u_id), "system": system, "item_id": sid},
-                    {"$set": {"rating": r, "timestamp": datetime.utcnow()}},
-                    upsert=True,
-                )
+                if not privacy_mode:
+                    ratings_collection.update_one(
+                        {"user_id": ObjectId(u_id), "system": system, "item_id": sid},
+                        {"$set": {"rating": r, "timestamp": datetime.utcnow()}},
+                        upsert=True,
+                    )
 
     # ───── LOAD ALL EXISTING RATINGS ─────
-    existing = {
-        r["item_id"]: r["rating"]
-        for r in ratings_collection.find({"user_id": ObjectId(u_id), "system": system})
-    }
+    privacy_mode = request.form.get("privacy_mode") == "1" if request.method == "POST" else False
+
+    if privacy_mode:
+        # Build ratings from POST data (NOT from DB)
+        ids_str = request.form.get("selected_ids", "").strip()
+        if ids_str:
+            selected_ids = ids_str.split(",")
+            existing = {}
+            for sid in selected_ids:
+                rating_val = request.form.get(f"rating_{sid}")
+                if not rating_val:
+                    continue
+                try:
+                    r = float(rating_val)
+                except ValueError:
+                    continue
+                existing[sid] = r
+        else:
+            existing = {}
+    else:
+        # Load from DB as usual
+        existing = {
+            r["item_id"]: r["rating"]
+            for r in ratings_collection.find({"user_id": ObjectId(u_id), "system": system})
+        }
 
     if len(existing) < 4:
         flash("Please rate at least 4 items to get recommendations.", "danger")
@@ -171,4 +194,4 @@ def reset_taste():
     )
 
     flash("Selections reset.", "info")
-    return redirect(url_for("item.index", system=system))
+    return redirect(url_for("item.index", system=system, reset_local="1"))

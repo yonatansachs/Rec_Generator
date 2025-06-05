@@ -157,4 +157,22 @@ def my_ratings():
         }
         for it in norm if it["id"] in ratings_map
     ]
-    return render_template("my_ratings.html", rated_items=rated_items, system=system)
+
+    # Pass all items (normalized) for local ratings display
+    all_items = [
+        {
+            "id": it["id"],
+            "name": it["name"],
+            "image": it.get("image"),
+            "description": it.get("description", ""),
+        }
+        for it in norm
+    ]
+
+    return render_template(
+        "my_ratings.html",
+        rated_items=rated_items,
+        system=system,
+        all_items=all_items  # <-- this is now always set!
+    )
+

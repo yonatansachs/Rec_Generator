@@ -31,9 +31,6 @@
 </head>
 <body>
   <div class="container mt-4">
-    <!-- Back to Selection Button -->
-
-
     <h1 class="mb-4">
       {% if system == 'movie' %}
         דירוגי הסרטים שלי
@@ -42,6 +39,10 @@
       {% endif %}
     </h1>
 
+    <!-- Database Ratings Section -->
+    <h3>
+      {% if system == 'movie' %}דירוגים מהשרת{% else %}Database Ratings{% endif %}
+    </h3>
     <div class="row">
       {% for item in rated_items %}
         <div class="col-md-6 mb-4">
@@ -68,19 +69,20 @@
                 <span class="star" data-value="5">&#9733;</span>
                 <input type="hidden" name="rating_{{ item.id }}" value="{{ item.rating }}">
               </div>
-              <!-- Details button -->
               <a href="/item_detail?system={{ system }}&id={{ item.id }}" class="btn btn-info mt-2">
-                {% if system == 'movie' %}
-                  פרטים
-                {% else %}
-                  Details
-                {% endif %}
+                {% if system == 'movie' %}פרטים{% else %}Details{% endif %}
               </a>
             </div>
           </div>
         </div>
       {% endfor %}
     </div>
+
+    <!-- Local Storage Ratings Section -->
+    <h3 class="mt-5">
+      {% if system == 'movie' %}דירוגים במכשיר שלך{% else %}Local Ratings (on this device){% endif %}
+    </h3>
+    <div class="row" id="local-ratings-row"></div>
   </div>
 
   <!-- Fixed Footer with Back Button -->
@@ -98,7 +100,7 @@
 
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
   <script>
-    // Initialize each locked star-rating widget using the hidden input value.
+    // Locked stars for DB ratings
     document.querySelectorAll('.star-rating').forEach(function(widget) {
       const stars = widget.querySelectorAll('.star');
       const input = widget.querySelector('input[type="hidden"]');
@@ -110,8 +112,62 @@
           star.classList.remove('selected');
         }
       });
-      // Note: No click listeners are attached, so the rating remains locked.
     });
+
+    // === Local Ratings Section ===
+    // Pass allItems from Flask to JS
+    window.allItems = {{ all_items|tojson }};
+    window.system = "{{ system }}";
+
+    function renderLocalRatings() {
+      let localRatings = JSON.parse(localStorage.getItem('ratings_' + window.system) || '{}');
+      let items = window.allItems || [];
+      let row = document.getElementById('local-ratings-row');
+      row.innerHTML = '';
+      // Only show local ratings that aren't in DB ratings
+      let dbRatedIds = new Set([
+        {% for item in rated_items %}
+          "{{ item.id }}",
+        {% endfor %}
+      ]);
+      Object.keys(localRatings).forEach(function(id) {
+
+        // Find item data
+        let item = items.find(it => it.id == id);
+        if (!item) return;
+        let rating = localRatings[id];
+        let col = document.createElement('div');
+        col.className = "col-md-6 mb-4";
+        col.innerHTML = `
+          <div class="card shadow-sm">
+            ${item.image ? `<img src="${item.image}" class="card-img-top" alt="${item.name}">` : ""}
+            <div class="card-body">
+              <h5 class="card-title">${item.name}</h5>
+              <p class="card-text">${item.description || ''}</p>
+              <p class="card-text">
+                {% if system == 'movie' %}
+                  דירוגך : <span>${rating}</span>/5
+                {% else %}
+                  Your Rating: <span>${rating}</span>/5
+                {% endif %}
+              </p>
+              <div class="star-rating">
+                ${[1,2,3,4,5].map(star => `
+                  <span class="star${star <= rating ? ' selected' : ''}" data-value="${star}">&#9733;</span>
+                `).join('')}
+                <input type="hidden" value="${rating}">
+              </div>
+              <a href="/item_detail?system={{ system }}&id=${item.id}" class="btn btn-info mt-2">
+                {% if system == 'movie' %}פרטים{% else %}Details{% endif %}
+              </a>
+            </div>
+          </div>
+        `;
+        row.appendChild(col);
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", renderLocalRatings);
   </script>
 </body>
 </html>

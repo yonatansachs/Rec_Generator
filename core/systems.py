@@ -68,3 +68,11 @@ def edit_item_in_system(system_id, item_id, updated_fields):
         {"$set": {"items": items}}
     )
     return result.modified_count > 0
+
+
+def get_features(item_id, system):
+    collection = get_items_collection(system)
+    item = collection.find_one({"item_id": item_id})
+    if not item:
+        raise ValueError(f"Item {item_id} not found in system {system}")
+    return item["FeatureVector"]

@@ -1,10 +1,12 @@
 from flask import Blueprint, request, jsonify
+
+from core.math_utils import calc_delta, solve_profile, est_rating
 from core.ratings import add_ratings, delete_all_ratings
 from core.users import create_user, get_user, update_user, delete_user
 from core.ratings import (
     add_rating, get_ratings, update_rating, delete_rating
 )
-from core.systems import create_system, get_system, update_system, delete_system, list_systems
+from core.systems import create_system, get_system, update_system, delete_system, list_systems, get_features
 from core.systems import add_items_to_system
 
 api_routes = Blueprint("api", __name__)
@@ -193,3 +195,50 @@ def api_get_ratings_by_items():
 
     ratings = get_ratings_by_items(user_id, system, item_ids)
     return jsonify(ratings), 200
+
+@api_routes.route("/estimated_ratings", methods=["POST"])
+def api_estimated_ratings():
+    """
+    Estimate a user's rating for each item in a list, based on their previous ratings and the recommendation model.
+    Expects:
+    {
+      "user_id": "...",
+      "system": "...",
+      "item_ids": ["item1", "item2", ...]
+    }
+    Returns:
+    {
+      "item1": 4.23,
+      "item2": 3.87,
+      ...
+    }
+    """
+    data = request.json
+    user_id = data.get("user_id")
+    system = data.get("system")
+    item_ids = data.get("item_ids", [])
+
+    # 1. Get user's rated items & their ratings
+    user_ratings = get_ratings(user_id, system)  # [{"item_id": ..., "value": ...}]
+    if not user_ratings or len(user_ratings) < 1:
+        return jsonify({"error": "User has no ratings"}), 400
+
+    # 2. Get feature vectors for those items
+    rated_ids = [r["item_id"] for r in user_ratings]
+    rated_vectors = [get_features(item_id, system) for item_id in rated_ids]
+    ratings = [r["value"] for r in user_ratings]
+
+    n = len(rated_vectors[0])
+    # 3. Build deltas
+    deltas = calc_delta(ratings, n)
+    # 4. Build user profile
+    profile = solve_profile(rated_vectors, deltas)
+
+    # 5. For each requested item, estimate rating
+    result = {}
+    for item_id in item_ids:
+        features = get_features(item_id, system)
+        est = est_rating(profile, features, n)
+        result[item_id] = round(est, 2)  # round for neatness
+
+    return jsonify(result), 200

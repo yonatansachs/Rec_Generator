@@ -1,0 +1,101 @@
+the jsons that the api routes need  :
+POST /create_user
+{
+  "user_name": "myuser",
+  "password": "mypassword"
+}
+
+PUT /update_user/<user_id>
+{
+  "updated_fields": {
+    "password": "newpassword"
+  }
+}
+
+POST /batch_ratings
+{
+  "user_id": "user123",
+  "system": "wine",
+  "ratings": [
+    { "item_id": "wine1", "value": 4 },
+    { "item_id": "wine2", "value": 5 }
+  ]
+}
+
+POST /rating
+{
+  "user_id": "user123",
+  "system": "wine",
+  "item_id": "wine1",
+  "value": 4
+}
+
+PUT /rating
+{
+  "user_id": "user123",
+  "system": "wine",
+  "item_id": "wine1",
+  "value": 5
+}
+
+DELETE /rating
+{
+  "user_id": "user123",
+  "system": "wine",
+  "item_id": "wine1"
+}
+
+POST /system
+{
+  "system_id": "wine",
+  "display": "Wine Recommender",
+  "mapping": {
+    "id_field": "id",
+    "name_field": "name",
+    "desc_field": "description",
+    "image_field": "image",
+    "vector_field": "featureVector"
+  }
+}
+
+PUT /system/<system_id>
+{
+  "updates": {
+    "display": "Wine Recommender (Updated)",
+    "mapping": {
+      "id_field": "wine_id",
+      "name_field": "wine_name",
+      "desc_field": "desc",
+      "image_field": "img_url",
+      "vector_field": "fv"
+    }
+  }
+}
+
+POST /add_items
+{
+  "system_id": "wine",
+  "items": [
+    { "item_id": "wine3", "name": "Cabernet", "country": "France" },
+    { "item_id": "wine4", "name": "Merlot", "country": "Italy" }
+  ]
+}
+
+PUT /edit_item
+{
+  "system_id": "wine",
+  "item_id": "wine4",
+  "updated_fields": {
+    "name": "Cabernet",
+    "country": "Italy"
+  }
+}
+
+POST /get_ratings_by_items
+{
+  "user_id": "user123",
+  "system": "wine",
+  "item_ids": ["wine1", "wine3", "wine5"]
+}
+
+

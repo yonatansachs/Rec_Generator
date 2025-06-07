@@ -5,6 +5,7 @@ from core.ratings import (
     add_rating, get_ratings, update_rating, delete_rating
 )
 from core.systems import create_system, get_system, update_system, delete_system, list_systems
+from core.systems import add_items_to_system
 
 api_routes = Blueprint("api", __name__)
 
@@ -147,5 +148,48 @@ def api_delete_system(system_id):
 
 @api_routes.route("/systems", methods=["GET"])
 def api_list_systems():
-    return jsonify(list_systems()), 200
+    systems = list_systems()
+    filtered = []
+    for s in systems:
+        filtered.append({
+            "id": s.get("system_id") or s.get("id"),
+            "name": s.get("display") or s.get("name") or s.get("system_id")
+        })
+    return jsonify(filtered), 200
 
+
+
+@api_routes.route("/add_items", methods=["POST"])
+def api_add_items():
+    data = request.json
+    system_id = data.get("system_id")
+    new_items = data.get("items", [])
+
+    success = add_items_to_system(system_id, new_items)
+    if success:
+        return jsonify({"message": "Items added."}), 200
+    return jsonify({"error": "Failed to add items."}), 400
+
+@api_routes.route("/edit_item", methods=["PUT"])
+def api_edit_item():
+    data = request.json
+    system_id = data.get("system_id")
+    item_id = data.get("item_id")
+    updated_fields = data.get("updated_fields", {})
+    from core.systems import edit_item_in_system  # This function will be created
+
+    success = edit_item_in_system(system_id, item_id, updated_fields)
+    if success:
+        return jsonify({"message": "Item updated."}), 200
+    return jsonify({"error": "Item not found or update failed."}), 400
+
+@api_routes.route("/get_ratings_by_items", methods=["POST"])
+def api_get_ratings_by_items():
+    data = request.json
+    user_id = data.get("user_id")
+    system = data.get("system")
+    item_ids = data.get("item_ids", [])
+    from core.ratings import get_ratings_by_items  # ניצור את הפונקציה הזו
+
+    ratings = get_ratings_by_items(user_id, system, item_ids)
+    return jsonify(ratings), 200

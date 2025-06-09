@@ -69,10 +69,28 @@ def edit_item_in_system(system_id, item_id, updated_fields):
     )
     return result.modified_count > 0
 
-
 def get_features(item_id, system):
+    from db.collections import get_items_collection
+    import logging
+
     collection = get_items_collection(system)
-    item = collection.find_one({"item_id": item_id})
+
+    # Search using "WineID" as a string
+    item = collection.find_one({"WineID": str(item_id)})
+
     if not item:
-        raise ValueError(f"Item {item_id} not found in system {system}")
-    return item["FeatureVector"]
+        logging.error(f"[get_features] Item {item_id} not found in collection '{system}'")
+        raise ValueError(f"Item {item_id} not found in system '{system}'")
+
+    vector = (
+        item.get("FeatureVector") or
+        item.get("featureVector") or
+        item.get("feature_vector")
+    )
+
+    if vector is None:
+        logging.error(f"[get_features] Item {item_id} in system '{system}' has no FeatureVector")
+        raise ValueError(f"Item {item_id} has no FeatureVector")
+
+    return vector
+

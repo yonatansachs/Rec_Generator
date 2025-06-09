@@ -201,93 +201,66 @@ import logging
 
 @api_routes.route("/estimated_ratings", methods=["POST"])
 def api_estimated_ratings():
+    from core.ratings import get_ratings
+    from core.systems import get_features
+    from core.math_utils import calc_delta, solve_profile, est_rating
+    import logging
+
     try:
-        logging.debug(request)
         data = request.json
         user_id = data.get("user_id")
         system = data.get("system")
         item_ids = data.get("item_ids", [])
 
-        logging.debug(f"Received estimated_ratings request: user_id={user_id}, system={system}, item_ids={item_ids}")
+        # Basic validations
+        if not user_id or not system or not item_ids:
+            return jsonify({"error": "Missing user_id, system, or item_ids"}), 400
+        if not isinstance(item_ids, list):
+            return jsonify({"error": "item_ids must be a list"}), 400
 
-        # Validate input
-        if not user_id:
-            logging.warning("Missing user_id")
-            return jsonify({"error": "Missing user_id"}), 400
+        # Step 1: Get user ratings
+        user_ratings = get_ratings(user_id, system)
+        if not user_ratings:
+            return jsonify({"error": f"No ratings found for user '{user_id}' in system '{system}'"}), 400
 
-        if not system:
-            logging.warning("Missing system")
-            return jsonify({"error": "Missing system"}), 400
+        # Step 2: Prepare data to build profile
+        rated_vectors = []
+        ratings = []
+        logging.debug(f"User rated items: {[r['item_id'] for r in user_ratings]}")
 
-        if not isinstance(item_ids, list) or not item_ids:
-            logging.warning("item_ids must be a non-empty list")
-            return jsonify({"error": "item_ids must be a non-empty list"}), 400
+        for rating in user_ratings:
+            try:
+                vector = get_features(rating["item_id"], system)
+                rated_vectors.append(vector)
+                ratings.append(rating["value"])
+            except Exception as e:
+                logging.warning(f"Skipping item {rating['item_id']}: {e}")
 
-        # 1. Get user's rated items & their ratings
-        try:
-            user_ratings = get_ratings(user_id, system)  # [{"item_id": ..., "value": ...}]
-        except Exception as e:
-            logging.error(f"get_ratings error: {e}")
-            return jsonify({"error": f"Failed to get user ratings: {e}"}), 500
+        if len(rated_vectors) == 0:
+            return jsonify({"error": "No valid feature vectors found for rated items"}), 400
 
-        if not user_ratings or len(user_ratings) < 1:
-            logging.info("User has no ratings")
-            return jsonify({"error": "User has no ratings"}), 400
-
-        # 2. Get feature vectors for those items
-        rated_ids = [r["item_id"] for r in user_ratings]
-        try:
-            rated_vectors = [get_features(item_id, system) for item_id in rated_ids]
-        except Exception as e:
-            logging.error(f"get_features (rated_ids) error: {e}")
-            return jsonify({"error": f"Failed to get features for rated items: {e}"}), 500
-
-        if not rated_vectors or any(v is None for v in rated_vectors):
-            logging.error("Some rated items have missing features")
-            return jsonify({"error": "Some rated items have missing features"}), 500
-
-        ratings = [r["value"] for r in user_ratings]
-
-        if not rated_vectors or not ratings or len(rated_vectors) != len(ratings):
-            logging.error("Mismatch between ratings and feature vectors")
-            return jsonify({"error": "Mismatch between ratings and feature vectors"}), 500
-
+        # Step 3: Build user profile
         n = len(rated_vectors[0])
-        logging.debug(f"Rated_vectors dimension: {n}")
+        deltas = calc_delta(ratings, n)
+        profile = solve_profile(rated_vectors, deltas)
 
-        # 3. Build deltas
-        try:
-            deltas = calc_delta(ratings, n)
-        except Exception as e:
-            logging.error(f"calc_delta error: {e}")
-            return jsonify({"error": f"Failed to calculate deltas: {e}"}), 500
-
-        # 4. Build user profile
-        try:
-            profile = solve_profile(rated_vectors, deltas)
-        except Exception as e:
-            logging.error(f"solve_profile error: {e}")
-            return jsonify({"error": f"Failed to solve user profile: {e}"}), 500
-
-        # 5. For each requested item, estimate rating
+        # Step 4: Estimate ratings
         result = {}
         for item_id in item_ids:
             try:
                 features = get_features(item_id, system)
-                if features is None:
-                    logging.warning(f"Missing features for item_id {item_id}")
-                    result[item_id] = None
-                    continue
                 est = est_rating(profile, features, n)
+
+                logging.debug(f"Estimated rating for item {item_id}: {est}")
                 result[item_id] = round(est, 2)
             except Exception as e:
                 logging.error(f"est_rating failed for item {item_id}: {e}")
                 result[item_id] = None
 
-        logging.debug(f"Estimation results: {result}")
         return jsonify(result), 200
 
     except Exception as e:
-        logging.error(f"Fatal error in /estimated_ratings: {e}")
-        return jsonify({"error": f"Server error: {e}"}), 500
+        logging.error(f"Unexpected error in /estimated_ratings: {e}")
+        return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 

@@ -8,24 +8,27 @@ from db.collections import SYSTEMS, get_ratings_collection, get_items_collection
 
 def add_ratings(user_id, system, ratings):
     if not user_id or not system or not ratings:
-        return jsonify({"error": "Missing fields"}), 400
+        return False
     if system not in SYSTEMS:
-        return jsonify({"error": "Invalid system"}), 400
+        return False
 
+    collection = get_ratings_collection()
     for r in ratings:
         item_id = r.get("item_id")
-        val = r.get("rating")
+        val = r.get("rating") if "rating" in r else r.get("value")
         if not item_id or val is None:
             continue
         try:
             val = float(val)
         except ValueError:
             continue
-        get_ratings_collection.update_one(
-            {"user_id": ObjectId(user_id), "system": system, "item_id": item_id},
-            {"$set": {"rating": val, "timestamp": datetime.utcnow()}},
+        collection.update_one(
+            {"user_id": user_id, "system": system, "item_id": item_id},
+            {"$set": {"value": val, "timestamp": datetime.utcnow()}},
             upsert=True
         )
+    return True
+
 
 
 def add_rating(user_id, system, item_id, value):

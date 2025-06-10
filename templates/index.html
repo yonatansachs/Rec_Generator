@@ -2,6 +2,8 @@
 <html {% if system =='movie' %}dir="rtl"{% endif %}>
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+
   <title>
     {% if system == 'movie' %}
       סרטים - דרג סרטים
@@ -58,6 +60,7 @@
     {% endif %}
   </div>
 </div>
+
 
 
 
@@ -128,6 +131,14 @@
       <input type="text" id="searchInput" class="form-control form-control-lg"
              placeholder="{% if system == 'movie' %}חפש לפי שם...{% else %}Search by name...{% endif %}">
     </div>
+
+   <div class="instruction-label" style="font-weight: bold; font-size: 1.2rem; color: #333; margin-bottom: 1rem; {% if system == 'movie' %}text-align: right;{% endif %}">
+    {% if system == 'movie' %}
+      יש לדרג לפחות 4 פריטים לפני לחיצה על "הצג המלצות"
+    {% else %}
+      You must rate at least 4 items before clicking "Show Recommendations"
+    {% endif %}
+  </div>
 
     <!-- Items and Rating Form -->
     <form action="{{ url_for('rec.recommend') }}?system={{ system }}" method="post" id="ratingForm">

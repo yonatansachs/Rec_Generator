@@ -76,7 +76,7 @@ def get_features(item_id, system):
     collection = get_items_collection(system)
 
     # Search using "WineID" as a string
-    item = collection.find_one({"WineID": str(item_id)})
+    item = collection.find_one({"WineID": item_id})
 
     if not item:
         logging.error(f"[get_features] Item {item_id} not found in collection '{system}'")

@@ -61,11 +61,22 @@ def api_delete_user(user_id):
 @api_routes.route("/batch_ratings", methods=["POST"])
 def api_batch_ratings():
     data = request.json
-    user_name = data.get("user_id")
+    user_id = data.get("user_id")
     system = data.get("system")
     ratings = data.get("ratings", [])
-    add_ratings(user_name, system, ratings)
+
+    # בדיקה אם המשתמש קיים
+    if not get_user(user_id):
+        return jsonify({"error": f"User '{user_id}' not found."}), 404
+
+    # בדיקה אם המערכת קיימת
+    if not get_system(system):
+        return jsonify({"error": f"System '{system}' not found."}), 404
+
+    # אם הכל תקין – הוספת הדירוגים
+    add_ratings(user_id, system, ratings)
     return jsonify({"message": "Ratings added."}), 201
+
 
 
 # Get all ratings for a user and system
@@ -81,17 +92,48 @@ def api_delete_all_ratings(user_id, system):
         "message": f"Deleted {deleted_count} rating(s) for user '{user_id}' in system '{system}'."
     }), 200
 
+@api_routes.route("/ratings/<user_id>", methods=["DELETE"])
+def api_delete_all_user_ratings(user_id):
+    from core.ratings import delete_all_user_ratings
+    deleted_count = delete_all_user_ratings(user_id)
+    return jsonify({
+        "message": f"Deleted {deleted_count} rating(s) for user '{user_id}' across all systems."
+    }), 200
+
+@api_routes.route("/ratings/system/<system_id>", methods=["DELETE"])
+def api_delete_all_ratings_in_system(system_id):
+    from core.ratings import delete_all_ratings_in_system
+    deleted_count = delete_all_ratings_in_system(system_id)
+    return jsonify({
+        "message": f"Deleted {deleted_count} rating(s) in system '{system_id}'."
+    }), 200
+
 
 #-------- SINGLE RATING CRUD ---------
 # Add a single rating
 @api_routes.route("/rating", methods=["POST"])
 def api_add_rating():
     data = request.json
-    success = add_rating(data["user_id"], data["system"], data["item_id"], data["value"])
+    user_id = data.get("user_id")
+    system = data.get("system")
+    item_id = data.get("item_id")
+    value = data.get("value")
+
+    # בדיקת קיום משתמש
+    if not get_user(user_id):
+        return jsonify({"error": f"User '{user_id}' not found."}), 404
+
+    # בדיקת קיום מערכת
+    if not get_system(system):
+        return jsonify({"error": f"System '{system}' not found."}), 404
+
+    # הוספת דירוג
+    success = add_rating(user_id, system, item_id, value)
     if not success:
         return jsonify({"error": "Rating already exists for this item."}), 400
 
     return jsonify({"message": "Rating added."}), 201
+
 
 
 # Update a single rating

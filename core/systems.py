@@ -71,17 +71,31 @@ def edit_item_in_system(system_id, item_id, updated_fields):
 
 def get_features(item_id, system):
     from db.collections import get_items_collection
+    from core.systems import get_system
     import logging
 
     collection = get_items_collection(system)
 
-    # Search using "WineID" as a string
-    item = collection.find_one({"WineID": item_id})
+    # קבלת פרטי המערכת כדי לדעת לפי איזה שדה לחפש
+    system_info = get_system(system)
+    if not system_info:
+        logging.error(f"[get_features] System '{system}' not found")
+        raise ValueError(f"System '{system}' not found")
 
+    # שליפת שדה ה-ID מתוך mapping
+    mapping = system_info.get("mapping", {})
+    id_field = mapping.get("id")
+    if not id_field:
+        logging.error(f"[get_features] System '{system}' mapping missing 'id'")
+        raise ValueError(f"System '{system}' missing mapping.id")
+
+    # שליפת הפריט לפי השדה המתאים
+    item = collection.find_one({id_field: item_id})
     if not item:
-        logging.error(f"[get_features] Item {item_id} not found in collection '{system}'")
+        logging.error(f"[get_features] Item {item_id} not found in system '{system}' using field '{id_field}'")
         raise ValueError(f"Item {item_id} not found in system '{system}'")
 
+    # נסה לשלוף את הווקטור מהשדות הנפוצים
     vector = (
         item.get("FeatureVector") or
         item.get("featureVector") or
@@ -93,4 +107,5 @@ def get_features(item_id, system):
         raise ValueError(f"Item {item_id} has no FeatureVector")
 
     return vector
+
 

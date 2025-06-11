@@ -96,3 +96,16 @@ def get_ratings_by_items(user_id, system, item_ids):
     # תוצאה בפורמט {item_id: value}
     result = {r["item_id"]: r["value"] for r in cursor}
     return result
+
+# core/ratings.py
+
+
+def delete_all_user_ratings(user_id):
+    collection = get_ratings_collection()
+    result = collection.delete_many({"user_id": user_id})
+    return result.deleted_count
+
+def delete_all_ratings_in_system(system_id):
+    collection = get_ratings_collection()
+    result = collection.delete_many({"system": system_id})
+    return result.deleted_count

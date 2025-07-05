@@ -12,12 +12,10 @@ from db.collections import SYSTEMS, get_ratings_collection, get_users_collection
 
 rec_bp = Blueprint("rec", __name__)
 
-# ───────────── API health check ─────────────
 @rec_bp.route("/recommendations", methods=["GET"])
 def get_recommendations():
     return {"message": "Recommendation endpoint works"}
 
-# ───────────── Show Recommendations Entry ─────────────
 @rec_bp.route("/show_recommendations")
 def show_recommendations():
     if "username" not in session:
@@ -40,7 +38,6 @@ def show_recommendations():
     return redirect(url_for("rec.dashboard", system=system))
 
 
-# ───────────── Recommend View ─────────────
 @rec_bp.route("/recommend", methods=["GET", "POST"])
 def recommend():
     if "username" not in session:
@@ -61,7 +58,6 @@ def recommend():
     u_id = session["user_id"]
     ratings_collection = get_ratings_collection()
 
-    # ───── HANDLE NEW RATINGS IF POST ─────
     if request.method == "POST":
         privacy_mode = request.form.get("privacy_mode") == "1"
         ids_str = request.form.get("selected_ids", "").strip()
@@ -82,11 +78,9 @@ def recommend():
                         upsert=True,
                     )
 
-    # ───── LOAD ALL EXISTING RATINGS ─────
     privacy_mode = request.form.get("privacy_mode") == "1" if request.method == "POST" else False
 
     if privacy_mode:
-        # Build ratings from POST data (NOT from DB)
         ids_str = request.form.get("selected_ids", "").strip()
         if ids_str:
             selected_ids = ids_str.split(",")
@@ -103,7 +97,6 @@ def recommend():
         else:
             existing = {}
     else:
-        # Load from DB as usual
         existing = {
             r["item_id"]: r["rating"]
             for r in ratings_collection.find({"user_id": ObjectId(u_id), "system": system})
@@ -113,7 +106,6 @@ def recommend():
         flash("Please rate at least 4 items to get recommendations.", "danger")
         return render_template("index.html", restaurants=norm, system=system, user_has_vector=False)
 
-    # ───── BUILD VECTORS & PROFILE ─────
     vectors = []
     for it in norm:
         fv = it["featureVector"][:] + [existing.get(it["id"], 3.0)]
@@ -172,7 +164,6 @@ def dashboard():
     return render_template("recommendations.html", recommendations=rated[:10], system=system)
 
 
-# ───────────── Reset Taste Vector ─────────────
 @rec_bp.route("/reset_taste")
 def reset_taste():
     if "username" not in session:

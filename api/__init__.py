@@ -1,3 +1,4 @@
+
 from .auth_routes import auth_bp
 from .rating_routes import rating_bp
 from .rec_routes import rec_bp
@@ -13,4 +14,6 @@ def register_all_routes(app):
     app.register_blueprint(dataset_bp, url_prefix="/dataset")
     app.register_blueprint(system_bp)
     app.register_blueprint(item_bp)
+
+
 

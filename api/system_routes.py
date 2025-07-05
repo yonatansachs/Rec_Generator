@@ -9,5 +9,4 @@ def choose_system():
     if "username" not in session:
         return redirect(url_for("auth.login"))
 
-    # ✅ FIX: pass the 'systems' variable into the template
     return render_template("choose_system.html", systems=SYSTEMS)

@@ -16,7 +16,6 @@ def signup():
             return render_template("signup.html")
         uid = create_user(u, p)
 
-        # ✅ FIX: Assign session keys explicitly
         session["username"] = u
         session["user_id"] = str(uid)
 
@@ -35,7 +34,6 @@ def login():
             flash("Invalid credentials.", "danger")
             return render_template("login.html")
 
-        # ✅ FIX: Assign session keys explicitly
         session["username"] = u
         session["user_id"] = str(user["_id"])
 

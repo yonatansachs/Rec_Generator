@@ -1,101 +1,199 @@
-the jsons that the api routes need  :
+# 📘 API Documentation: Recommendation System
+
+This document describes how to use the available API routes for managing users, systems, items, and ratings.
+
+
+**** ALL ROUTES START WITH /api/...
+--------- 🧑 Users ---------
+
+➕ Create User
 POST /create_user
+**Body (JSON):**
+
 {
-  "user_name": "myuser",
-  "password": "mypassword"
+  "user_name": "alice123",
+  "password": "securePassword"
 }
 
-PUT /update_user/<user_id>
+
+🔍 Get User
+GET /get_user/<user_id>`
+
+ ✏️ Update User
+PUT /update_user/<user_id>`
+**Body (JSON):**
+
 {
   "updated_fields": {
-    "password": "newpassword"
+    "password": "newPassword"
   }
 }
 
-POST /batch_ratings
+
+❌ Delete User
+DELETE /delete_user/<user_id>
+
+
+
+-------------- 🧩 Systems ---------------
+
+➕ Create System
+POST /create_system`
+**Body (JSON):**
+
 {
-  "user_id": "user123",
-  "system": "wine",
-  "ratings": [
-    { "item_id": "wine1", "value": 4 },
-    { "item_id": "wine2", "value": 5 }
-  ]
+  "system_id": "movies",
+  "display": "Movie Recommendations",
+  "mapping": { "id": "item_id" }
 }
 
-POST /rating
-{
-  "user_id": "user123",
-  "system": "wine",
-  "item_id": "wine1",
-  "value": 4
-}
 
-PUT /rating
-{
-  "user_id": "user123",
-  "system": "wine",
-  "item_id": "wine1",
-  "value": 5
-}
+📖 Get System
+GET /get_system/<system_id>
 
-DELETE /rating
-{
-  "user_id": "user123",
-  "system": "wine",
-  "item_id": "wine1"
-}
-
-POST /system
-{
-  "system_id": "wine",
-  "display": "Wine Recommender",
-  "mapping": {
-    "id_field": "id",
-    "name_field": "name",
-    "desc_field": "description",
-    "image_field": "image",
-    "vector_field": "featureVector"
-  }
-}
-
-PUT /system/<system_id>
+✏️ Update System
+PUT /update_system/<system_id>
+**Body (JSON):**
 {
   "updates": {
-    "display": "Wine Recommender (Updated)",
-    "mapping": {
-      "id_field": "wine_id",
-      "name_field": "wine_name",
-      "desc_field": "desc",
-      "image_field": "img_url",
-      "vector_field": "fv"
-    }
+    "display": "Updated Name"
   }
 }
 
+❌ Delete System
+DELETE /delete_system/<system_id>
+
+📄 List Systems
+GET /get_systems
+
+
+
+---------------- 🎞 Items ------------------
+
+➕ Add Items to System
 POST /add_items
+**Body (JSON):**
+
 {
-  "system_id": "wine",
+  "system_id": "movies",
   "items": [
-    { "item_id": "wine3", "name": "Cabernet", "country": "France" },
-    { "item_id": "wine4", "name": "Merlot", "country": "Italy" }
+    {"item_id": "123", "title": "Inception"},
+    {"item_id": "456", "title": "Interstellar"}
   ]
 }
 
-PUT /edit_item
+
+✏️ Edit Item in System
+PUT /edit_item`
+**Body (JSON):**
+
 {
-  "system_id": "wine",
-  "item_id": "wine4",
+  "system_id": "movies",
+  "item_id": "123",
   "updated_fields": {
-    "name": "Cabernet",
-    "country": "Italy"
+    "title": "Inception (2010)"
   }
 }
 
-POST /get_ratings_by_items
+
+---
+
+------------------- ⭐ Ratings ---------------------
+
+➕ Add Single Rating
+POST /add_rating
+**Body (JSON):**
+
 {
-  "user_id": "user123",
-  "system": "wine",
-  "item_ids": ["wine1", "wine3", "wine5"]
+  "user_id": "alice123",
+  "system": "movies",
+  "item_id": "456",
+  "value": 4.5
 }
 
 
+✏️ Update Single Rating
+PUT /update_rating
+**Body (JSON):**
+
+{
+  "user_id": "alice123",
+  "system": "movies",
+  "item_id": "456",
+  "value": 5.0
+}
+
+
+❌ Delete Single Rating
+DELETE /delete_rating
+**Body (JSON):**
+
+{
+  "user_id": "alice123",
+  "system": "movies",
+  "item_id": "456"
+}
+
+
+➕ Add Batch Ratings
+POST /batch_ratings
+**Body (JSON):**
+
+{
+  "user_id": "alice123",
+  "system": "movies",
+  "ratings": [
+    {"item_id": "123", "value": 5.0},
+    {"item_id": "456", "value": 4.0}
+  ]
+}
+
+
+📖 Get All Ratings of a User in a System
+GET /get_ratings_of_user_in_system/<user_id>/<system>
+
+❌ Delete All Ratings of a User in a System
+DELETE /delete_ratings_of_user_in_system/<user_id>/<system>
+
+❌ Delete All Ratings of a User Across Systems
+DELETE /delete_all_user_ratings/<user_id>
+
+❌ Delete All Ratings in a System
+DELETE /delete_all_ratings_in_system/system/<system_id>
+
+📖 Get Rating for Single Item
+GET /rating/<user_id>/<system>/<item_id>
+
+
+-------------------🔍 Extra Tools --------------------
+
+🎯 Get Ratings by Item IDs
+POST /get_ratings_by_items
+**Body (JSON):**
+
+{
+  "user_id": "alice123",
+  "system": "movies",
+  "item_ids": ["123", "456"]
+}
+
+🔮 Estimated Ratings (Based on Profile)
+POST /estimated_ratings
+**Body (JSON):**
+
+{
+  "user_id": "alice123",
+  "system": "movies",
+  "item_ids": ["789", "101"]
+}
+
+
+📊 Evaluate MAE
+POST /evaluate_mae
+**Body (JSON):**
+
+{
+  "system": "movies",
+  "item_ids": ["1", "2", "3", "4", "5", "6", "7", "8"],
+  "ratings": [3.0, 4.0, 5.0, 2.0, 3.5, 4.5, 5.0, 4.0]
+}

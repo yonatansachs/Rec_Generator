@@ -12,7 +12,6 @@ from db.collections import SYSTEMS, get_ratings_collection
 
 rating_bp = Blueprint("rating", __name__)
 
-# ─────────── Example API: Batch Ratings (can extend later) ───────────
 @rating_bp.route("/batch_ratings", methods=["POST"])
 def add_batch_ratings():
     return jsonify({"message": "Batch ratings endpoint works"})
@@ -158,7 +157,6 @@ def my_ratings():
         for it in norm if it["id"] in ratings_map
     ]
 
-    # Pass all items (normalized) for local ratings display
     all_items = [
         {
             "id": it["id"],
@@ -173,6 +171,6 @@ def my_ratings():
         "my_ratings.html",
         rated_items=rated_items,
         system=system,
-        all_items=all_items  # <-- this is now always set!
+        all_items=all_items
     )
 

@@ -5,7 +5,8 @@ from utils.security import hash_pw
 # ─────────── User Creation & Lookup ───────────
 
 def create_user(username, password):
-    if find_user(username):  # אם המשתמש כבר קיים
+    username = str(username)
+    if find_user(username):
         return None
     return get_users_collection().insert_one({
         "username": username,
@@ -13,36 +14,54 @@ def create_user(username, password):
         "taste_vector": {},
     }).inserted_id
 
+
 # ─────────── User Management ───────────
 
 def get_user(username):
-    user = get_users_collection().find_one({"username": username}, {"_id": 0, "password_hash": 0})
+    username = str(username)
+    user = get_users_collection().find_one(
+        {"username": username}, {"_id": 0, "password_hash": 0}
+    )
     return user
 
+
 def update_user(username, updated_fields):
+    username = str(username)
     if "password" in updated_fields:
         updated_fields["password_hash"] = hash_pw(updated_fields.pop("password"))
-    result = get_users_collection().update_one({"username": username}, {"$set": updated_fields})
+    result = get_users_collection().update_one(
+        {"username": username}, {"$set": updated_fields}
+    )
     return result.modified_count > 0
 
 def delete_user(username):
+    username = str(username)
     result = get_users_collection().delete_one({"username": username})
     return result.deleted_count > 0
 
+
 def find_user(username):
+    username = str(username)
     return get_users_collection().find_one({"username": username})
+
 
 def check_pw(user, pw):
     return user["password_hash"] == hash_pw(pw)
 
+
 # ─────────── Taste Vector Handling ───────────
 
 def set_taste(user_id, system, vec):
+    user_id = str(user_id)
+    system = str(system)
     get_users_collection().update_one(
         {"_id": ObjectId(user_id)},
         {"$set": {f"taste_vector.{system}": vec}},
     )
 
 def get_taste(user_id, system):
+    user_id = str(user_id)
+    system = str(system)
     user = get_users_collection().find_one({"_id": ObjectId(user_id)})
     return user.get("taste_vector", {}).get(system)
+

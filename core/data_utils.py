@@ -17,7 +17,6 @@ def normalize(data, mapping):
             "image":        it.get(mapping["image"], ""),
             "featureVector": it[mapping["featureVector"]],
         }
-        # Only add latitude/longitude if present in mapping and in this item
         if "latitude" in mapping and mapping["latitude"] in it:
             item["latitude"] = it[mapping["latitude"]]
         if "longitude" in mapping and mapping["longitude"] in it:

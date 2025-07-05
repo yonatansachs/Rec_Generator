@@ -51,11 +51,7 @@ def create_indexes():
 # ───────────── Dynamic Collection Loader ─────────────
 
 def load_existing_collections() -> None:
-    """
-    Register every non-utility Mongo collection as a system.
-    If we stored a user-defined mapping in `system_metadata`,
-    use it; otherwise fall back to default field names.
-    """
+
     db = get_db()
     exclude = {
         "users", "ratings", "system.indexes", "system_metadata","click_logs"

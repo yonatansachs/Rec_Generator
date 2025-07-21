@@ -317,8 +317,6 @@ def api_estimated_ratings():
 
 
 
-api_routes = Blueprint("api", __name__)
-
 @api_routes.route("/evaluate_mae", methods=["POST"])
 def api_evaluate_mae():
     data = request.get_json() or {}

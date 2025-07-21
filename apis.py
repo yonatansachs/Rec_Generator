@@ -255,69 +255,74 @@ def api_get_ratings_by_items():
 
 @api_routes.route("/estimated_ratings", methods=["POST"])
 def api_estimated_ratings():
-
+    from core.data_utils import load_data, normalize
+    from db.collections import SYSTEMS, get_ratings_collection, get_users_collection
+    from core.math_utils import solve_profile, calc_delta, est_rating
+    from bson import ObjectId
+    import logging
 
     try:
         data = request.json
-        user_id = data.get("user_id")
+        username = data.get("user_id")  # Actually a username like "1363357"
         system = data.get("system")
         item_ids = data.get("item_ids", [])
 
-        # Basic validations
-        if not user_id or not system or not item_ids:
+        if not username or not system or not item_ids:
             return jsonify({"error": "Missing user_id, system, or item_ids"}), 400
         if not isinstance(item_ids, list):
             return jsonify({"error": "item_ids must be a list"}), 400
+        if system not in SYSTEMS:
+            return jsonify({"error": f"System '{system}' not found"}), 404
 
-        # Step 1: Get user ratings
-        user_ratings = get_ratings(user_id, system)
-        if not user_ratings:
-            return jsonify({"error": f"No ratings found for user '{user_id}' in system '{system}'"}), 400
+        # Remove commas, spaces, match the actual DB username
+        username = username.strip().rstrip(",")
 
-        # Step 2: Prepare data to build profile
-        rated_vectors = []
-        ratings = []
-        logging.debug(f"User rated items: {[r['item_id'] for r in user_ratings]}")
+        # Get the user _id by username
+        user_doc = get_users_collection().find_one({"username": {"$regex": f"^{username},?$"}})
+        if not user_doc:
+            return jsonify({"error": f"User '{username}' not found"}), 404
 
-        for rating in user_ratings:
-            try:
-                vector = get_features(rating["item_id"], system)
-                rated_vectors.append(vector)
-                ratings.append(rating["value"])
-            except Exception as e:
-                logging.warning(f"Skipping item {rating['item_id']}: {e}")
+        user_obj_id = user_doc["_id"]
 
-        if len(rated_vectors) == 0:
-            return jsonify({"error": "No valid feature vectors found for rated items"}), 400
+        # Load and normalize dataset
+        mapping = SYSTEMS[system]["mapping"]
+        norm = normalize(load_data(system), mapping)
 
-        # Step 3: Build user profile
-        n = len(rated_vectors[0])
-        deltas = calc_delta(ratings, n)
-        profile = solve_profile(rated_vectors, deltas)
+        # Get ratings using the real ObjectId
+        collection = get_ratings_collection()
+        user_ratings = {
+            doc["item_id"]: doc.get("value") or doc.get("rating")
+            for doc in collection.find({"user_id": user_obj_id, "system": system})
+            if doc.get("value") is not None or doc.get("rating") is not None
+        }
 
-        # Step 4: Estimate ratings
+        if len(user_ratings) < 4:
+            return jsonify({"error": "At least 4 ratings are required to estimate."}), 400
+
+        n = len(norm[0]["featureVector"])
+        rated_vecs, deltas = [], []
+        for item in norm:
+            if item["id"] in user_ratings:
+                vec = item["featureVector"][:] + [user_ratings[item["id"]]]
+                rated_vecs.append(vec)
+                deltas.append(user_ratings[item["id"]])
+
+        profile = solve_profile(rated_vecs, calc_delta(deltas, n))
+
         result = {}
-        for item_id in item_ids:
-            try:
-                features = get_features(item_id, system)
-                est = est_rating(profile, features, n)
-
-                logging.debug(f"Estimated rating for item {item_id}: {est}")
-                result[item_id] = round(est, 2)
-            except Exception as e:
-                logging.error(f"est_rating failed for item {item_id}: {e}")
-                result[item_id] = None
+        for item in norm:
+            if item["id"] in item_ids:
+                rating = est_rating(profile, item["featureVector"], n)
+                result[item["id"]] = round(rating, 2)
 
         return jsonify(result), 200
 
     except Exception as e:
-        logging.error(f"Unexpected error in /estimated_ratings: {e}")
+        logging.exception("Unexpected error in /estimated_ratings")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
 
-
-api_routes = Blueprint("api", __name__)
 
 @api_routes.route("/evaluate_mae", methods=["POST"])
 def api_evaluate_mae():

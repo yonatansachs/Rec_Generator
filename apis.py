@@ -263,7 +263,7 @@ def api_estimated_ratings():
 
     try:
         data = request.json
-        username = data.get("user_id")  # Actually a username like "1363357"
+        username = data.get("user_id")
         system = data.get("system")
         item_ids = data.get("item_ids", [])
 
@@ -274,31 +274,47 @@ def api_estimated_ratings():
         if system not in SYSTEMS:
             return jsonify({"error": f"System '{system}' not found"}), 404
 
-        # Remove commas, spaces, match the actual DB username
         username = username.strip().rstrip(",")
 
-        # Get the user _id by username
+        # Get user document
         user_doc = get_users_collection().find_one({"username": {"$regex": f"^{username},?$"}})
         if not user_doc:
             return jsonify({"error": f"User '{username}' not found"}), 404
-
         user_obj_id = user_doc["_id"]
 
-        # Load and normalize dataset
+        # Load and normalize system data
         mapping = SYSTEMS[system]["mapping"]
         norm = normalize(load_data(system), mapping)
 
-        # Get ratings using the real ObjectId
+        # Support both user_id formats and allow system=None
         collection = get_ratings_collection()
+        query = {
+            "$or": [
+                {"user_id": username},
+                {"user_id": user_obj_id}
+            ]
+        }
+        # Only include "system" if it's present in the documents
+        try:
+            test_doc = collection.find_one()
+            if test_doc and "system" in test_doc:
+                query["system"] = system
+        except Exception:
+            pass
+
+        # Fetch user ratings
         user_ratings = {
             doc["item_id"]: doc.get("value") or doc.get("rating")
-            for doc in collection.find({"user_id": user_obj_id, "system": system})
+            for doc in collection.find(query)
             if doc.get("value") is not None or doc.get("rating") is not None
         }
+
+        print("User ratings found:", user_ratings)
 
         if len(user_ratings) < 4:
             return jsonify({"error": "At least 4 ratings are required to estimate."}), 400
 
+        # Build user profile
         n = len(norm[0]["featureVector"])
         rated_vecs, deltas = [], []
         for item in norm:
@@ -309,6 +325,7 @@ def api_estimated_ratings():
 
         profile = solve_profile(rated_vecs, calc_delta(deltas, n))
 
+        # Estimate ratings
         result = {}
         for item in norm:
             if item["id"] in item_ids:
@@ -320,6 +337,7 @@ def api_estimated_ratings():
     except Exception as e:
         logging.exception("Unexpected error in /estimated_ratings")
         return jsonify({"error": f"Server error: {str(e)}"}), 500
+
 
 
 

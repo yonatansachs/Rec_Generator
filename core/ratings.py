@@ -1,6 +1,6 @@
 from datetime import datetime
 from db.collections import SYSTEMS, get_ratings_collection, get_items_collection
-
+import logging
 
 def add_ratings(user_id, system, ratings):
     if not user_id or not system or not ratings:
@@ -126,13 +126,21 @@ def get_ratings_by_items(user_id, system, item_ids):
     result = {r["item_id"]: r["value"] for r in cursor}
     return result
 
-# core/ratings.py
-
-
 def delete_all_user_ratings(user_id):
     collection = get_ratings_collection()
+    user_id = str(user_id)
+
+    # Debug: print how many ratings actually match before deletion
+    match_count = collection.count_documents({"user_id": user_id})
+    logging.info(f"Found {match_count} ratings for user_id='{user_id}'")
+
+    # Delete those ratings
     result = collection.delete_many({"user_id": user_id})
+    logging.info(f"Deleted {result.deleted_count} ratings for user '{user_id}'")
+
     return result.deleted_count
+
+
 
 def delete_all_ratings_in_system(system_id):
     collection = get_ratings_collection()

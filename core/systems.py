@@ -13,14 +13,14 @@ def create_system(system_id, display_name, mapping):
     return get_system_metadata_collection().insert_one(doc).inserted_id
 
 
-def get_system(system_id):
-    system_id = str(system_id)
-    doc = get_system_metadata_collection().find_one({"collection_name": system_id}, {"_id": 0})
+def get_system(system_name):
+    system_name = str(system_name)
+    doc = get_system_metadata_collection().find_one({"collection_name": system_name}, {"_id": 0})
     if doc:
         return doc
 
     for key in SYSTEMS:
-        if key.lower() == system_id.lower():
+        if key.lower() == system_name.lower():
             mapping = SYSTEMS[key]["mapping"]
             return {
                 "collection_name": key,
@@ -38,11 +38,11 @@ def update_system(system_id, updates):
     return result.modified_count > 0
 
 
-def delete_system(system_id):
-    system_id = str(system_id)
+def delete_system(system_name):
+    system_name = str(system_name)
     db = get_db()
-    db.drop_collection(system_id)
-    result = get_system_metadata_collection().delete_one({"collection_name": system_id})
+    db.drop_collection(system_name)
+    result = get_system_metadata_collection().delete_one({"collection_name": system_name})
     return result.deleted_count > 0
 
 def list_systems():

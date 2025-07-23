@@ -90,9 +90,32 @@ def api_batch_ratings():
 # Get all ratings for a user and system
 @api_routes.route("/get_ratings_of_user_in_system/<user_id>/<system>", methods=["GET"])
 def api_get_ratings(user_id, system):
-    user_id, system = str(user_id), str(system)
-    ratings = get_ratings(user_id, system)
-    return jsonify(ratings), 200
+    from db.collections import get_ratings_collection
+    from flask import jsonify
+    import logging
+
+    try:
+        user_id = str(user_id)
+        system = str(system)
+
+        # Debug logging
+        logging.info(f"Fetching ratings for user_id: {user_id}, system: {system}")
+
+        # Query ratings collection
+        cursor = get_ratings_collection().find({"user_id": user_id, "system": system})
+        ratings = []
+        for doc in cursor:
+            ratings.append({
+                "item_id": doc.get("item_id"),
+                "value": doc.get("value")
+            })
+
+        return jsonify(ratings), 200
+
+    except Exception as e:
+        logging.error(f"Error in /get_ratings_of_user_in_system: {e}")
+        return jsonify({"error": str(e)}), 500
+
 
 
 @api_routes.route("/delete_ratings_of_user_in_system/<user_id>/<system>", methods=["DELETE"])
@@ -106,11 +129,19 @@ def api_delete_all_ratings(user_id, system):
 
 @api_routes.route("/delete_all_user_ratings/<user_id>", methods=["DELETE"])
 def api_delete_all_user_ratings(user_id):
-    user_id = str(user_id)
-    deleted_count = delete_all_user_ratings(user_id)
-    return jsonify({
-        "message": f"Deleted {deleted_count} rating(s) for user '{user_id}' across all systems."
-    }), 200
+    try:
+        deleted_count = delete_all_user_ratings(user_id)
+
+        return jsonify({
+            "message": f"Deleted {deleted_count} rating(s) for user '{user_id}' across all systems."
+        }), 200
+
+    except Exception as e:
+        logging.error(f"Error deleting ratings for user {user_id}: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+
 
 @api_routes.route("/delete_all_ratings_in_system/system/<system_id>", methods=["DELETE"])
 def api_delete_all_ratings_in_system(system_id):
@@ -179,8 +210,8 @@ def api_create_system():
     return jsonify({"message": "System created."}), 201
 
 @api_routes.route("/get_system/<system_id>", methods=["GET"])
-def api_get_system(system_id):
-    system = get_system(system_id)
+def api_get_system(system_name):
+    system = get_system(system_name)
     if system:
         return jsonify(system), 200
     return jsonify({"error": "System not found"}), 404
@@ -203,18 +234,13 @@ def api_delete_system(system_id):
 @api_routes.route("/get_systems", methods=["GET"])
 def api_list_systems():
     systems = list_systems()
-    filtered = []
 
-    for s in systems:
-        system_id = s.get("system_id") or s.get("id") or "unknown_id"
-        name = s.get("display") or s.get("name") or system_id
+    # Return only the collection_name field as system names
+    names = [s.get("collection_name", "unknown") for s in systems]
 
-        filtered.append({
-            "id": system_id,
-            "name": name
-        })
+    return jsonify(names), 200
 
-    return jsonify(filtered), 200
+
 
 
 

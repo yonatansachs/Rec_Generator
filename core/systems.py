@@ -48,59 +48,44 @@ def delete_system(system_name):
 def list_systems():
     return list(get_system_metadata_collection().find({}, {"_id": 0}))
 
-
 def add_items_to_system(system_id, new_items):
+    from db.collections import get_items_collection
+    import logging
+
     system_id = str(system_id)
-    systems = get_items_collection('systems')
+    collection = get_items_collection(system_id)
 
-    system = systems.find_one({"system_id": system_id})
-    if not system:
+    try:
+        result = collection.insert_many(new_items)
+        logging.info(f"Inserted {len(result.inserted_ids)} items into '{system_id}'")
+        return True
+    except Exception as e:
+        logging.error(f"Failed to insert items into '{system_id}': {e}")
         return False
-
-    for item in new_items:
-        item["item_id"] = str(item.get("item_id"))
-
-    current_items = system.get('items', [])
-    updated_items = current_items + new_items
-
-    result = systems.update_one(
-        {"system_id": system_id},
-        {"$set": {"items": updated_items}}
-    )
-    return result.modified_count > 0
 
 
 
 def edit_item_in_system(system_id, item_id, updated_fields):
+    from db.collections import get_items_collection
+    import logging
+
     system_id = str(system_id)
     item_id = str(item_id)
 
-    systems = get_items_collection('systems')
-    system = systems.find_one({"system_id": system_id})
-    if not system or "items" not in system:
-        return False
+    collection = get_items_collection(system_id)  # e.g. winesnew
 
-    items = system["items"]
-    updated = False
-    for item in items:
-        if str(item.get("item_id")) == item_id:
-            item.update(updated_fields)
-            updated = True
-            break
-    if not updated:
-        return False
-
-    result = systems.update_one(
-        {"system_id": system_id},
-        {"$set": {"items": items}}
+    # Assume item_id is stored under the field "WineID"
+    result = collection.update_one(
+        {"WineID": item_id},
+        {"$set": updated_fields}
     )
+
+    logging.info(f"Modified count: {result.modified_count}")
     return result.modified_count > 0
 
 
+
 def get_features(item_id, system):
-
-
-
     system = str(system)
     item_id = str(item_id)
     collection = get_items_collection(system)

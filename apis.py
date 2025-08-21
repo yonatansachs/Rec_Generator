@@ -365,9 +365,6 @@ def api_estimated_ratings():
         return jsonify({"error": f"Server error: {str(e)}"}), 500
 
 
-
-
-
 @api_routes.route("/evaluate_mae", methods=["POST"])
 def api_evaluate_mae():
     data = request.get_json() or {}
